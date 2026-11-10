@@ -1,21 +1,21 @@
-<#
-  Registers the sync to run every 2 minutes on this PC, for the logged-in user.
-  Run once, from this folder:  powershell -ExecutionPolicy Bypass -File install-task.ps1
-  Remove it later with:        Unregister-ScheduledTask -TaskName 'CASC Cut Times sync' -Confirm:$false
-#>
+# Creates the scheduled task "CASC Cut Times sync": every 2 minutes, 06:00-18:00, Monday to Friday,
+# for the logged-in Windows user. It runs hidden (no window popping up), wakes the PC from sleep to run,
+# runs on battery and catches up a missed run as soon as it can.
 $ErrorActionPreference = 'Stop'
+$name = 'CASC Cut Times sync'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script = Join-Path $here 'CascCutTimeSync.ps1'
-if (-not (Test-Path (Join-Path $here 'config.json'))) { throw 'Create config.json first (copy config.example.json).' }
+if (-not (Test-Path (Join-Path $here 'config.json'))) { throw 'Run "1 - Set up and test.bat" first.' }
+$vbs = Join-Path $here 'run-hidden.vbs'
 
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-  -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$script`"" -WorkingDirectory $here
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-  -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Days 3650)
-$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
-  -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-$logon = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\$env:USERNAME"
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('"{0}"' -f $vbs) -WorkingDirectory $here
+$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At '06:00'
+$every2 = New-ScheduledTaskTrigger -Once -At '06:00' -RepetitionInterval (New-TimeSpan -Minutes 2) -RepetitionDuration (New-TimeSpan -Hours 12)
+$trigger.Repetition = $every2.Repetition
+$settings = New-ScheduledTaskSettingsSet -WakeToRun -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+  -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 
-Register-ScheduledTask -TaskName 'CASC Cut Times sync' -Action $action -Trigger @($trigger, $logon) -Settings $settings `
-  -Description 'Sends SigmaNEST programs to the CASC Cut Times tablet app every 2 minutes.' -Force | Out-Null
-Write-Host "Installed. It runs every 2 minutes while you're logged in. Logs: $here\logs"
+Register-ScheduledTask -TaskName $name -Action $action -Trigger $trigger -Settings $settings -Force `
+  -Description 'Sends SigmaNEST programs to the CASC cut times app (read-only).' | Out-Null
+
+Write-Host "Done. '$name' runs every 2 minutes, 06:00-18:00, Monday to Friday, while this PC is on."
+Write-Host 'Each run adds a line to sync_log.txt in this folder. "Check cut times sync.bat" shows how it is doing.'

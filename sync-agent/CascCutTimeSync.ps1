@@ -1,44 +1,65 @@
 <#
   CASC Cut Times - SigmaNEST sync
-  Reads SigmaNEST (SNDBase) READ-ONLY and sends the program list to the Netlify app.
-  Runs every 2 minutes from Task Scheduler (see install-task.ps1). Needs nothing installed:
-  Windows PowerShell 5.1 and .NET's built-in SQL client are enough.
+  Reads SigmaNEST (SNDBase) READ-ONLY and sends the program list to the cut-times app.
+  Needs nothing installed: Windows PowerShell 5.1 and .NET's built-in SQL client.
 
   Each run:
-    1. Sends every program waiting in SigmaNEST (dbo.Program).
-    2. Sends programs completed in SigmaNEST (dbo.ProgArchive, TransType SN102) since the last run.
-       The first run goes back to StartDate in config.json, in batches.
+    1. Programs waiting in SigmaNEST (dbo.Program): sent when the list has changed, and at least
+       every 8 minutes anyway so the tablet can see the PC is still syncing.
+    2. Programs completed in SigmaNEST (dbo.ProgArchive, TransType SN102) since the last run, sent only
+       when something new has been completed. The first run goes back to StartDate, a month at a time.
 
-  Usage:  powershell -NoProfile -ExecutionPolicy Bypass -File CascCutTimeSync.ps1 [-Test]
-          -Test only checks the SQL connection and the site, and sends nothing.
+  Safe by design: SELECT queries only, on a read-only connection that never locks SigmaNEST's tables.
+
+  Usage:  CascCutTimeSync.ps1            normal run (what the scheduled task does)
+          CascCutTimeSync.ps1 -Force     send everything now, even if nothing changed
+          CascCutTimeSync.ps1 -Test      check SQL and the website only, send nothing
 #>
-param([switch]$Test)
+param([switch]$Test, [switch]$Force)
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $configPath = Join-Path $here 'config.json'
 $statePath = Join-Path $here 'state.json'
-$logDir = Join-Path $here 'logs'
-if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }
-$logFile = Join-Path $logDir ("sync-{0}.log" -f (Get-Date -Format 'yyyy-MM'))
+$logFile = Join-Path $here 'sync_log.txt'
+$HeartbeatMinutes = 8
 
 function Write-Log([string]$msg) {
   $line = "{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg
-  Add-Content -Path $logFile -Value $line
+  try {
+    if ((Test-Path $logFile) -and (Get-Item $logFile).Length -gt 1MB) {
+      Move-Item $logFile (Join-Path $here 'sync_log.old.txt') -Force
+    }
+    Add-Content -Path $logFile -Value $line
+  } catch { }
   Write-Host $line
 }
 
-if (-not (Test-Path $configPath)) { throw "config.json not found. Copy config.example.json to config.json and fill it in." }
+if (-not (Test-Path $configPath)) { throw 'config.json not found. Run "1 - Set up and test.bat" first.' }
 $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-foreach ($k in 'SqlServer', 'Database', 'SiteUrl', 'SyncKey', 'StartDate') {
+foreach ($k in 'SqlServer', 'Database', 'SiteUrl', 'StartDate') {
   if (-not $cfg.$k) { throw "config.json: '$k' is empty." }
 }
+
+# The sync key is stored encrypted for this Windows user (DPAPI). A plain SyncKey also works.
+function Get-SyncKey {
+  if ($cfg.SyncKeyEncrypted) {
+    $sec = ConvertTo-SecureString $cfg.SyncKeyEncrypted
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+    try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) }
+    finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+  }
+  if ($cfg.SyncKey) { return [string]$cfg.SyncKey }
+  throw 'No sync key saved. Run "1 - Set up and test.bat" again.'
+}
+$syncKey = Get-SyncKey
 $batchSize = if ($cfg.BatchSize) { [int]$cfg.BatchSize } else { 300 }
 $site = $cfg.SiteUrl.TrimEnd('/')
+if ($site -notmatch '^https://') { throw "SiteUrl must start with https:// (it is $site)." }
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# ------------------------------------------------------------------ SQL
+# ------------------------------------------------------------------ SQL (read-only)
 
 function New-Connection {
   $b = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
@@ -55,10 +76,15 @@ function New-Connection {
   }
   $c = New-Object System.Data.SqlClient.SqlConnection $b.ConnectionString
   $c.Open()
+  # Never hold SigmaNEST up: read without taking locks.
+  $cmd = $c.CreateCommand()
+  $cmd.CommandText = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED'
+  [void]$cmd.ExecuteNonQuery()
   return $c
 }
 
 function Invoke-Query($conn, [string]$sql, [hashtable]$params = @{}) {
+  if ($sql.TrimStart() -notmatch '^SELECT') { throw 'Read-only queries only.' }
   $cmd = $conn.CreateCommand()
   $cmd.CommandText = $sql
   $cmd.CommandTimeout = 300
@@ -216,21 +242,39 @@ function Build-Done($progRows, $partRows) {
 
 # ------------------------------------------------------------------ send
 
-function Send-Sync([string]$kind, $programs) {
+function ConvertTo-ProgramsJson($programs) {
   $list = New-Object System.Collections.ArrayList
   foreach ($p in @($programs)) { [void]$list.Add($p) }
-  $payload = @{ kind = $kind; programs = $list }
-  $json = ConvertTo-Json -InputObject $payload -Depth 6 -Compress
+  return (ConvertTo-Json -InputObject $list -Depth 6 -Compress)
+}
+
+function Get-Fingerprint([string]$text) {
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  return [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))).Replace('-', '')
+}
+
+function Send-Sync([string]$kind, $programs) {
+  $json = '{"kind":"' + $kind + '","programs":' + (ConvertTo-ProgramsJson $programs) + '}'
   $bytes = [Text.Encoding]::UTF8.GetBytes($json)
-  $res = Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body $bytes `
-    -ContentType 'application/json; charset=utf-8' -Headers @{ 'x-sync-key' = $cfg.SyncKey } -TimeoutSec 60
-  if (-not $res.ok) { throw "Site refused the $kind sync: $($res.error)" }
+  try {
+    $res = Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body $bytes `
+      -ContentType 'application/json; charset=utf-8' -Headers @{ 'x-sync-key' = $syncKey } -TimeoutSec 60
+  } catch {
+    $detail = $_.ErrorDetails.Message
+    if (-not $detail) { $detail = $_.Exception.Message }
+    throw "the site refused the $kind upload: $detail"
+  }
+  if (-not $res.ok) { throw "the site refused the $kind upload: $($res.error)" }
   return $res
 }
 
 function Read-State {
-  if (Test-Path $statePath) { return (Get-Content $statePath -Raw | ConvertFrom-Json) }
-  return [pscustomobject]@{ doneSince = $null }
+  $s = [ordered]@{ doneSince = $null; waitingFp = $null; waitingAt = $null; doneFp = $null }
+  if (Test-Path $statePath) {
+    $f = Get-Content $statePath -Raw | ConvertFrom-Json
+    foreach ($k in @($s.Keys)) { if ($f.$k) { $s[$k] = $f.$k } }
+  }
+  return $s
 }
 function Save-State($s) { $s | ConvertTo-Json | Set-Content -Path $statePath -Encoding UTF8 }
 
@@ -238,32 +282,51 @@ function Save-State($s) { $s | ConvertTo-Json | Set-Content -Path $statePath -En
 
 $conn = $null
 try {
+  $t0 = Get-Date
   $conn = New-Connection
 
   if ($Test) {
     $n = (Invoke-Query $conn 'SELECT COUNT(*) AS n FROM dbo.Program').Rows[0].n
-    Write-Log "SQL OK: $n program rows waiting in SigmaNEST."
-    $ping = Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body '{"kind":"ping"}' -ContentType 'application/json' -Headers @{ 'x-sync-key' = $cfg.SyncKey }
-    Write-Log "Site OK: $site answered at $($ping.at)."
+    Write-Log "SQL OK: $($cfg.SqlServer) / $($cfg.Database), $n program rows waiting in SigmaNEST."
+    try {
+      $ping = Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body '{"kind":"ping"}' -ContentType 'application/json' -Headers @{ 'x-sync-key' = $syncKey } -TimeoutSec 30
+      Write-Log "Site OK: $site accepted the sync key (site time $($ping.at))."
+    } catch {
+      $detail = $_.ErrorDetails.Message
+      if (-not $detail) { $detail = $_.Exception.Message }
+      throw "the site didn't accept the connection or the sync key: $detail"
+    }
     return
   }
 
-  # 1. Waiting programs: the whole list every time.
+  $state = Read-State
+  $sent = @()
+
+  # 1. Waiting programs.
   $wp = Invoke-Query $conn $waitingProgramsSql
   $wparts = Invoke-Query $conn $waitingPartsSql
   $waiting = @(Build-Waiting $wp.Rows $wparts.Rows)
-  $r = Send-Sync 'waiting' $waiting
-  Write-Log "Waiting: sent $($r.count) programs."
+  $wfp = Get-Fingerprint (ConvertTo-ProgramsJson $waiting)
+  $age = if ($state.waitingAt) { ((Get-Date) - [datetime]$state.waitingAt).TotalMinutes } else { 9999 }
+  if ($Force -or $wfp -ne $state.waitingFp -or $age -ge $HeartbeatMinutes) {
+    $r = Send-Sync 'waiting' $waiting
+    $state.waitingFp = $wfp
+    $state.waitingAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')
+    Save-State $state
+    $sent += "waiting ($($r.count))"
+  }
 
-  # 2. Completed programs since the last run (a day of overlap is harmless: the site updates in place).
-  $state = Read-State
+  # 2. Completed programs since the last run (a day of overlap catches late archiving; the site updates in place).
   $start = [datetime]::ParseExact($cfg.StartDate, 'yyyy-MM-dd', $null)
+  $firstRun = -not $state.doneSince
   $since = if ($state.doneSince) { ([datetime]$state.doneSince).AddDays(-1) } else { $start }
   if ($since -lt $start) { $since = $start }
   $now = Get-Date
 
-  # Work through it a month at a time so the first run (back to StartDate) stays small.
   $from = $since
+  $windowFp = ''
+  $doneCount = 0
+  $chunks = New-Object System.Collections.ArrayList
   while ($from -lt $now) {
     $to = $from.AddMonths(1); if ($to -gt $now.AddMinutes(1)) { $to = $now.AddMinutes(1) }
     $p = @{ '@since' = $from; '@until' = $to }
@@ -271,16 +334,33 @@ try {
     if ($dp.Rows.Count -gt 0) {
       $dparts = Invoke-Query $conn $donePartsSql $p
       $done = @(Build-Done $dp.Rows $dparts.Rows)
-      for ($i = 0; $i -lt $done.Count; $i += $batchSize) {
-        $chunk = $done[$i..([math]::Min($i + $batchSize, $done.Count) - 1)]
-        $res = Send-Sync 'done' $chunk
-        Write-Log ("Completed {0:dd/MM/yyyy}-{1:dd/MM/yyyy}: sent {2} programs." -f $from, $to, $res.count)
-      }
+      $doneCount += $done.Count
+      [void]$chunks.Add(@{ from = $from; to = $to; programs = $done })
+      $windowFp += Get-Fingerprint (ConvertTo-ProgramsJson $done)
     }
     $from = $to
   }
+  $dfp = Get-Fingerprint $windowFp
+  if ($doneCount -gt 0 -and ($Force -or $firstRun -or $dfp -ne $state.doneFp)) {
+    $total = 0
+    foreach ($c in $chunks) {
+      $done = $c.programs
+      for ($i = 0; $i -lt $done.Count; $i += $batchSize) {
+        $chunk = $done[$i..([math]::Min($i + $batchSize, $done.Count) - 1)]
+        $res = Send-Sync 'done' $chunk
+        $total += $res.count
+      }
+      if ($firstRun) { Write-Log ("  completed {0:dd/MM/yyyy} to {1:dd/MM/yyyy}: {2} programs" -f $c.from, $c.to, $c.programs.Count) }
+    }
+    $sent += "completed ($total)"
+  }
+  $state.doneFp = $dfp
   $state.doneSince = $now.ToString('yyyy-MM-ddTHH:mm:ss')
   Save-State $state
+
+  $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
+  $summary = "read SigmaNEST in $secs s: $($waiting.Count) waiting, $doneCount completed since $($since.ToString('dd/MM HH:mm'))"
+  if ($sent.Count) { Write-Log "$summary; sent $($sent -join ', ')" } else { Write-Log "$summary; no change, nothing sent" }
 }
 catch {
   Write-Log "ERROR: $($_.Exception.Message)"

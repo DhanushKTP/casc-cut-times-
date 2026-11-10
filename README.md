@@ -63,19 +63,13 @@ Build two flows, **main** and **notify**, following [docs/power-automate.md](doc
 
 ### 4. Sync script on the office PC
 
-1. Copy the `sync-agent` folder to the PC, for example `C:\CASC\CutTimesSync`.
-2. Copy `config.example.json` to `config.json` and fill it in:
-   - `SqlServer`: the SigmaNEST SQL instance, as in SQL Server Management Studio
-   - `Database`: `SNDBase`
-   - `UseWindowsAuth`: `true` to connect as your Windows login. Set it to `false` and fill in `SqlUser` and `SqlPassword` to use a read-only SQL login (recommended).
-   - `SiteUrl`: your Netlify address
-   - `SyncKey`: the same value as `SYNC_KEY` in Netlify
-   - `StartDate`: `2026-01-01`
-3. Test it: `powershell -ExecutionPolicy Bypass -File CascCutTimeSync.ps1 -Test`
-4. Run it once by hand without `-Test`. The first run uploads every program completed since `StartDate`, a month at a time, so it takes a few minutes.
-5. Install the 2-minute schedule: `powershell -ExecutionPolicy Bypass -File install-task.ps1`
+Copy the `sync-agent` folder to the PC (for example `Documents\CASC Cut Times sync`) and follow its `READ ME.txt`:
 
-Logs are written to `sync-agent\logs\`. If the PC is off, the tablet still works and times can still be entered, but new programs won't appear until the PC is back on. The header on the tablet shows when the list was last updated.
+1. `1 - Set up and test.bat` asks for the SQL Server (default `CASC-APPSRV-02\SIGMANEST`), the database (`SNDBase`), the website and the sync key. The key is saved encrypted for your Windows user. It then tests both connections without sending anything.
+2. `2 - Send programs now.bat` sends everything once. The first run goes back to 1 Jan, a month at a time.
+3. `3 - Turn on automatic sync.bat` runs it every 2 minutes, 06:00-18:00, Monday to Friday. It runs hidden, wakes the PC from sleep and runs on battery.
+
+`Check cut times sync.bat` shows whether it's running, and `Stop cut times sync.bat` switches it off. Each run writes a line to `sync_log.txt`. The sync only reads SigmaNEST, without locking its tables, and only sends when something has changed (plus a small "still here" every 8 minutes). If the PC is off, the tablet still works, but new programs won't appear until it's back on. The tablet header shows when the list was last updated.
 
 ### 5. Tablet
 
