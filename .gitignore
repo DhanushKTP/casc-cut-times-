@@ -1,0 +1,6 @@
+node_modules/
+.netlify/
+.env
+sync-agent/config.json
+sync-agent/state.json
+sync-agent/logs/

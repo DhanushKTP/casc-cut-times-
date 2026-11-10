@@ -1,0 +1,11 @@
+{
+  "SqlServer": "CASC-APPSRV-02\\SIGMANEST",
+  "Database": "SNDBase",
+  "UseWindowsAuth": true,
+  "SqlUser": "",
+  "SqlPassword": "",
+  "SiteUrl": "https://YOUR-SITE.netlify.app",
+  "SyncKey": "paste the same value as SYNC_KEY in Netlify",
+  "StartDate": "2026-01-01",
+  "BatchSize": 300
+}

@@ -1,0 +1,16 @@
+{
+  "name": "casc-cut-times",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CASC laser cut-time tablet app: SigmaNEST programs, operator time entry, SharePoint master sheet via Power Automate.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check netlify/shared/*.mjs && for f in netlify/functions/*.mjs; do node --check $f; done && node --check public/app.js"
+  },
+  "dependencies": {
+    "@netlify/blobs": "10.7.13"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
