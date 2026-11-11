@@ -111,10 +111,15 @@
     const d = state.data;
     let syncHtml = '';
     if (sync && d) {
-      const at = d.waitingUpdatedAt;
-      const age = at ? (Date.now() - new Date(at).getTime()) / 60e3 : Infinity;
-      const stale = !at || age > 10;
-      syncHtml = `<span class="sync ${stale ? 'stale' : ''}"><i></i>${at ? `${stale ? 'List not updated since' : 'List updated'} ${esc(stale ? dm(at) : hm(at))}` : 'List never updated'}</span>`;
+      // One pill per source: the flat lasers come from SigmaNEST, the tube laser from S:\TruLaser7000.
+      const pill = (label, at) => {
+        const age = at ? (Date.now() - new Date(at).getTime()) / 60e3 : Infinity;
+        const stale = !at || age > 10;
+        const when = !at ? 'not yet' : stale ? dm(at) : hm(at);
+        return `<span class="sync ${stale ? 'stale' : ''}" title="${stale ? 'Not checked for over 10 minutes: is the sync PC on?' : 'Checked by the sync PC'}"><i></i>${esc(label)} ${esc(when)}</span>`;
+      };
+      const hasTube = d.programs.some((p) => p.type === 'tube') || d.tubeSeenAt;
+      syncHtml = pill('3030 / 1040', d.sigmaSeenAt) + (hasTube ? pill('Tube', d.tubeSeenAt) : '');
     }
     return `<header class="bar">
       <div class="left">

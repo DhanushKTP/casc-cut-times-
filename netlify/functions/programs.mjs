@@ -7,10 +7,11 @@ export default async (req) => {
   const { error } = requireSession(req);
   if (error) return error;
 
-  const [{ data: summary }, { data: status }, { data: running }] = await Promise.all([
+  const [{ data: summary }, { data: status }, { data: running }, { data: heartbeat }] = await Promise.all([
     readJSON(PROGRAMS, 'summary', EMPTY_SUMMARY),
     readJSON(SUBMISSIONS, 'status', {}),
     readJSON(TIMERS, 'index', {}),
+    readJSON(PROGRAMS, 'heartbeat', {}),
   ]);
   const s = summary ?? EMPTY_SUMMARY;
   const from = startDate();
@@ -38,6 +39,9 @@ export default async (req) => {
     waitingUpdatedAt: s.waitingUpdatedAt,
     doneUpdatedAt: s.doneUpdatedAt,
     tubeUpdatedAt: s.tubeUpdatedAt ?? null,
+    // When the PC last checked each source (even if nothing had changed).
+    sigmaSeenAt: heartbeat?.sigma ?? s.waitingUpdatedAt ?? null,
+    tubeSeenAt: heartbeat?.tube ?? s.tubeUpdatedAt ?? null,
     startDate: from,
     operators: operators(),
     programs: out,

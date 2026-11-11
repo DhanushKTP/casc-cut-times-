@@ -75,9 +75,14 @@ export default async (req) => {
 
   const b = await body(req);
   if (!b || !['waiting', 'done', 'tube', 'ping'].includes(b.kind)) return fail(400, 'kind must be waiting, done, tube or ping.');
-  if (b.kind === 'ping') return json({ ok: true, at: nowLocal() });
-
   const at = nowLocal();
+  // "Still here" from the PC, per source, so the tablet can show when each machine's list was last checked.
+  const beat = (sources) => updateJSON(PROGRAMS, 'heartbeat', {}, (h) => { for (const src of sources) h[src] = at; });
+  if (b.kind === 'ping') {
+    const sources = (Array.isArray(b.sources) ? b.sources : []).filter((x) => ['sigma', 'tube'].includes(x));
+    if (sources.length) await beat(sources);
+    return json({ ok: true, at });
+  }
   if (b.kind === 'tube') {
     const packs = (Array.isArray(b.programs) ? b.programs : []).map(cleanTube).filter(Boolean);
     await updateJSON(PROGRAMS, 'tube', { programs: {} }, (m) => {
@@ -88,6 +93,7 @@ export default async (req) => {
       for (const p of packs) s.tube[p.no] = summarize(p, 'tube');
       s.tubeUpdatedAt = at;
     });
+    await beat(['tube']);
     return json({ ok: true, kind: 'tube', count: packs.length, at });
   }
 
@@ -100,6 +106,7 @@ export default async (req) => {
       s.waiting = Object.fromEntries(programs.map((p) => [p.no, summarize(p, 'waiting')]));
       s.waitingUpdatedAt = at;
     });
+    await beat(['sigma']);
     return json({ ok: true, kind: 'waiting', count: programs.length, at });
   }
 

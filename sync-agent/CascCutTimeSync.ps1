@@ -539,6 +539,17 @@ try {
     }
   }
 
+  # "Still here" for each source this run checked, so the tablet shows when each list was last checked.
+  $checked = @()
+  if (-not $TubeOnly) { $checked += 'sigma' }
+  if ($cfg.TubeFolder -and $tubeNote) { $checked += 'tube' }
+  if ($checked.Count) {
+    try {
+      $pingBody = '{"kind":"ping","sources":["' + ($checked -join '","') + '"]}'
+      [void](Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body $pingBody -ContentType 'application/json' -Headers @{ 'x-sync-key' = $syncKey } -TimeoutSec 30)
+    } catch { Write-Log "WARNING: couldn't send the 'still here' signal: $($_.Exception.Message)" }
+  }
+
   $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
   $summary = if ($TubeOnly) { "read in $secs s$tubeNote" } else { "read in $secs s: $($waiting.Count) waiting, $doneCount completed since $($since.ToString('dd/MM HH:mm'))$tubeNote" }
   if ($sent.Count) { Write-Log "$summary; sent $($sent -join ', ')" } else { Write-Log "$summary; no change, nothing sent" }
