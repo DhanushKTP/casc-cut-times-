@@ -1,0 +1,32 @@
+CASC Cut Times - tube laser sync (TruLaser Tube 7000)
+=====================================================
+Sends the tube laser production packages (.TPP files under S:\TruLaser7000) to the cut times app
+(casc-cut-times.netlify.app). The flat laser (SigmaNEST) sync is separate and keeps running as it is:
+this folder has its own settings, its own log and its own scheduled task ("CASC Cut Times tube sync").
+
+SAFE BY DESIGN
+- Read-only: it only opens the .TPP files to read them. SigmaNEST is only used (read-only) to find a
+  customer's name for a JN when the tube file doesn't say. You can skip that in set up.
+- The sync key is stored encrypted for your Windows user only.
+- Nothing to install. After the first run it only reads new or changed .TPP files.
+
+SET UP (once)
+Put this folder somewhere permanent, e.g. Documents\CASC Cut Times tube sync, then:
+1 - Set up and test.bat          SQL Server (Enter, or - to skip), database (Enter), website (Enter),
+                                 tube folder (Enter: S:\TruLaser7000), sync key (casc).
+                                 Then checks the tube folder and the website. Sends nothing.
+2 - Send tube packages now.bat   Sends everything since 1 Jan 2026 now. Then check the tablet.
+3 - Turn on automatic sync.bat   Every 2 minutes, 06:01-18:00, Monday to Friday. Runs hidden, wakes
+                                 the PC from sleep, runs on battery.
+
+OTHER FILES
+Check tube sync.bat              Is it running? Last / next run, any problem, last log lines.
+Stop tube sync.bat               Switches the automatic tube sync off.
+sync_log.txt                     One line per run.
+
+HOW IT READS A PACKAGE
+- One .TPP file = one entry on the tablet. .xml, .result.xml, .svg, .pdf and .lst files are ignored.
+- JN: from the job folder (JN11929, or JN11460-B for a sub-job folder), not the file name.
+- Tubes, parts per tube, runs and TRUMPF's machine time per part: from inside the .TPP.
+- Customer: from the drawing path saved in the file (...\Customers v2\<customer>\...), otherwise
+  from SigmaNEST by JN, otherwise blank.

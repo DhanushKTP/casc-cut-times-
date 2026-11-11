@@ -1,5 +1,6 @@
 # Asks for the SigmaNEST SQL details and the sync key once, saves them (the key encrypted for this
 # Windows user), then tests reading SigmaNEST and reaching the website. Sends no data.
+param([switch]$TubeOnly)   # -TubeOnly: set up the tube-laser-only copy of the sync
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $configPath = Join-Path $here 'config.json'
@@ -10,17 +11,20 @@ function Ask([string]$q, [string]$default) {
 }
 
 Write-Host ''
-Write-Host 'CASC Cut Times - SigmaNEST sync: set up' -ForegroundColor Cyan
+if ($TubeOnly) { Write-Host 'CASC Cut Times - tube laser sync: set up' -ForegroundColor Cyan }
+else { Write-Host 'CASC Cut Times - SigmaNEST sync: set up' -ForegroundColor Cyan }
 if (Test-Path $configPath) {
   $again = Ask 'Settings are already saved. Enter them again? (Y/N)' 'N'
 }
 if (-not (Test-Path $configPath) -or $again -match '^[Yy]') {
   Write-Host 'Press Enter to keep the value in [brackets].'
+  if ($TubeOnly) { Write-Host 'SigmaNEST is only used to find the customer for a JN when the tube file does not say. Type - to skip it.' }
   $server = Ask 'SQL Server' 'CASC-APPSRV-02\SIGMANEST'
+  if ($server -eq '-') { $server = '' }
   $db = Ask 'Database' 'SNDBase'
   $site = Ask 'Website' 'https://casc-cut-times.netlify.app'
-  $tube = Ask 'Tube laser folder (type - for none)' 'S:\TruLaser7000'
-  if ($tube -eq '-') { $tube = '' }
+  $tube = Ask $(if ($TubeOnly) { 'Tube laser folder' } else { 'Tube laser folder (type - for none)' }) 'S:\TruLaser7000'
+  if ($tube -eq '-' -and -not $TubeOnly) { $tube = '' }
   elseif ($tube -match '^([A-Za-z]):(.*)$') {
     # A mapped drive letter may not exist for the scheduled task: store the network path instead.
     $drive = Get-PSDrive -Name $Matches[1] -ErrorAction SilentlyContinue
@@ -38,6 +42,7 @@ if (-not (Test-Path $configPath) -or $again -match '^[Yy]') {
     SiteUrl          = $site
     SyncKeyEncrypted = (ConvertFrom-SecureString $sec)   # Windows DPAPI: only this user on this PC can read it
     TubeFolder       = $tube
+    TubeOnly         = [bool]$TubeOnly
     StartDate        = '2026-01-01'
     BatchSize        = 300
   }
@@ -69,4 +74,5 @@ if ($LASTEXITCODE -ne 0) {
   exit 1
 }
 Write-Host ''
-Write-Host 'Test PASSED. Next: "2 - Send programs now.bat".' -ForegroundColor Green
+if ($TubeOnly) { Write-Host 'Test PASSED. Next: "2 - Send tube packages now.bat".' -ForegroundColor Green }
+else { Write-Host 'Test PASSED. Next: "2 - Send programs now.bat".' -ForegroundColor Green }

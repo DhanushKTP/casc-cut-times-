@@ -1,9 +1,10 @@
 # Shows whether the CASC Cut Times sync is running as it should.
-$name = 'CASC Cut Times sync'
+param([string]$TaskName = 'CASC Cut Times sync')
+$name = $TaskName
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
 Write-Host ''
-if (-not $t) { Write-Host "The task '$name' isn't set up on this PC. Run '3 - Turn on automatic sync.bat'." }
+if (-not $t) { Write-Host "The task '$name' isn't set up on this PC. Run the '3 - Turn on automatic sync' file." }
 else {
   $i = $t | Get-ScheduledTaskInfo; $now = Get-Date
   $ran = $i.LastRunTime.Year -ge 2000

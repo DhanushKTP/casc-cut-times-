@@ -37,7 +37,9 @@ function Write-Log([string]$msg) {
 
 if (-not (Test-Path $configPath)) { throw 'config.json not found. Run "1 - Set up and test.bat" first.' }
 $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-foreach ($k in 'SqlServer', 'Database', 'SiteUrl', 'StartDate') {
+$TubeOnly = [bool]$cfg.TubeOnly   # tube-laser-only copy of the sync: no SigmaNEST programs, SQL only for customer names
+$required = if ($TubeOnly) { @('SiteUrl', 'StartDate', 'TubeFolder') } else { @('SqlServer', 'Database', 'SiteUrl', 'StartDate') }
+foreach ($k in $required) {
   if (-not $cfg.$k) { throw "config.json: '$k' is empty." }
 }
 
@@ -55,7 +57,7 @@ function Get-SyncKey {
 $syncKey = Get-SyncKey
 $batchSize = if ($cfg.BatchSize) { [int]$cfg.BatchSize } else { 300 }
 $site = $cfg.SiteUrl.TrimEnd('/')
-if ($site -notmatch '^https://') { throw "SiteUrl must start with https:// (it is $site)." }
+if ($site -notmatch '^https://' -and $site -notmatch '^http://localhost(:\d+)?$') { throw "SiteUrl must start with https:// (it is $site)." }
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -406,11 +408,18 @@ function Save-State($s) { $s | ConvertTo-Json -Depth 4 | Set-Content -Path $stat
 $conn = $null
 try {
   $t0 = Get-Date
-  $conn = New-Connection
+  if ($TubeOnly) {
+    # SigmaNEST is only used to look up customers for tube jobs; carry on without it if it can't be reached.
+    if ($cfg.SqlServer) { try { $conn = New-Connection } catch { $conn = $null; if ($Test) { Write-Log "Note: SigmaNEST not reachable ($($_.Exception.Message)); customers will come from the drawing path only." } } }
+  } else {
+    $conn = New-Connection
+  }
 
   if ($Test) {
-    $n = (Invoke-Query $conn 'SELECT COUNT(*) AS n FROM dbo.Program').Rows[0].n
-    Write-Log "SQL OK: $($cfg.SqlServer) / $($cfg.Database), $n program rows waiting in SigmaNEST."
+    if ($conn) {
+      $n = (Invoke-Query $conn 'SELECT COUNT(*) AS n FROM dbo.Program').Rows[0].n
+      Write-Log "SQL OK: $($cfg.SqlServer) / $($cfg.Database), $n program rows waiting in SigmaNEST."
+    }
     if ($cfg.TubeFolder) {
       if (Test-Path $cfg.TubeFolder) {
         $nt = @(Get-ChildItem -Path $cfg.TubeFolder -Recurse -File -Filter '*.tpp' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge [datetime]::ParseExact($cfg.StartDate, 'yyyy-MM-dd', $null) }).Count
@@ -431,61 +440,65 @@ try {
   $state = Read-State
   $sent = @()
 
-  # 1. Waiting programs.
-  $wp = Invoke-Query $conn $waitingProgramsSql
-  $wparts = Invoke-Query $conn $waitingPartsSql
-  $waiting = @(Build-Waiting $wp.Rows $wparts.Rows)
-  $wfp = Get-Fingerprint (ConvertTo-ProgramsJson $waiting)
-  $age = if ($state.waitingAt) { ((Get-Date) - [datetime]$state.waitingAt).TotalMinutes } else { 9999 }
-  if ($Force -or $wfp -ne $state.waitingFp -or $age -ge $HeartbeatMinutes) {
-    $r = Send-Sync 'waiting' $waiting
-    $state.waitingFp = $wfp
-    $state.waitingAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')
-    Save-State $state
-    $sent += "waiting ($($r.count))"
-  }
-
-  # 2. Completed programs since the last run (a day of overlap catches late archiving; the site updates in place).
+  $waiting = @(); $doneCount = 0; $since = Get-Date
   $start = [datetime]::ParseExact($cfg.StartDate, 'yyyy-MM-dd', $null)
-  $firstRun = -not $state.doneSince
-  $since = if ($state.doneSince) { ([datetime]$state.doneSince).AddDays(-1) } else { $start }
-  if ($since -lt $start) { $since = $start }
-  $now = Get-Date
+  if (-not $TubeOnly) {
+    # 1. Waiting programs.
+    $wp = Invoke-Query $conn $waitingProgramsSql
+    $wparts = Invoke-Query $conn $waitingPartsSql
+    $waiting = @(Build-Waiting $wp.Rows $wparts.Rows)
+    $wfp = Get-Fingerprint (ConvertTo-ProgramsJson $waiting)
+    $age = if ($state.waitingAt) { ((Get-Date) - [datetime]$state.waitingAt).TotalMinutes } else { 9999 }
+    if ($Force -or $wfp -ne $state.waitingFp -or $age -ge $HeartbeatMinutes) {
+      $r = Send-Sync 'waiting' $waiting
+      $state.waitingFp = $wfp
+      $state.waitingAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')
+      Save-State $state
+      $sent += "waiting ($($r.count))"
+    }
 
-  $from = $since
-  $windowFp = ''
-  $doneCount = 0
-  $chunks = New-Object System.Collections.ArrayList
-  while ($from -lt $now) {
-    $to = $from.AddMonths(1); if ($to -gt $now.AddMinutes(1)) { $to = $now.AddMinutes(1) }
-    $p = @{ '@since' = $from; '@until' = $to }
-    $dp = Invoke-Query $conn $doneProgramsSql $p
-    if ($dp.Rows.Count -gt 0) {
-      $dparts = Invoke-Query $conn $donePartsSql $p
-      $done = @(Build-Done $dp.Rows $dparts.Rows)
-      $doneCount += $done.Count
-      [void]$chunks.Add(@{ from = $from; to = $to; programs = $done })
-      $windowFp += Get-Fingerprint (ConvertTo-ProgramsJson $done)
-    }
-    $from = $to
-  }
-  $dfp = Get-Fingerprint $windowFp
-  if ($doneCount -gt 0 -and ($Force -or $firstRun -or $dfp -ne $state.doneFp)) {
-    $total = 0
-    foreach ($c in $chunks) {
-      $done = $c.programs
-      for ($i = 0; $i -lt $done.Count; $i += $batchSize) {
-        $chunk = $done[$i..([math]::Min($i + $batchSize, $done.Count) - 1)]
-        $res = Send-Sync 'done' $chunk
-        $total += $res.count
+    # 2. Completed programs since the last run (a day of overlap catches late archiving; the site updates in place).
+    $start = [datetime]::ParseExact($cfg.StartDate, 'yyyy-MM-dd', $null)
+    $firstRun = -not $state.doneSince
+    $since = if ($state.doneSince) { ([datetime]$state.doneSince).AddDays(-1) } else { $start }
+    if ($since -lt $start) { $since = $start }
+    $now = Get-Date
+
+    $from = $since
+    $windowFp = ''
+    $doneCount = 0
+    $chunks = New-Object System.Collections.ArrayList
+    while ($from -lt $now) {
+      $to = $from.AddMonths(1); if ($to -gt $now.AddMinutes(1)) { $to = $now.AddMinutes(1) }
+      $p = @{ '@since' = $from; '@until' = $to }
+      $dp = Invoke-Query $conn $doneProgramsSql $p
+      if ($dp.Rows.Count -gt 0) {
+        $dparts = Invoke-Query $conn $donePartsSql $p
+        $done = @(Build-Done $dp.Rows $dparts.Rows)
+        $doneCount += $done.Count
+        [void]$chunks.Add(@{ from = $from; to = $to; programs = $done })
+        $windowFp += Get-Fingerprint (ConvertTo-ProgramsJson $done)
       }
-      if ($firstRun) { Write-Log ("  completed {0:dd/MM/yyyy} to {1:dd/MM/yyyy}: {2} programs" -f $c.from, $c.to, $c.programs.Count) }
+      $from = $to
     }
-    $sent += "completed ($total)"
+    $dfp = Get-Fingerprint $windowFp
+    if ($doneCount -gt 0 -and ($Force -or $firstRun -or $dfp -ne $state.doneFp)) {
+      $total = 0
+      foreach ($c in $chunks) {
+        $done = $c.programs
+        for ($i = 0; $i -lt $done.Count; $i += $batchSize) {
+          $chunk = $done[$i..([math]::Min($i + $batchSize, $done.Count) - 1)]
+          $res = Send-Sync 'done' $chunk
+          $total += $res.count
+        }
+        if ($firstRun) { Write-Log ("  completed {0:dd/MM/yyyy} to {1:dd/MM/yyyy}: {2} programs" -f $c.from, $c.to, $c.programs.Count) }
+      }
+      $sent += "completed ($total)"
+    }
+    $state.doneFp = $dfp
+    $state.doneSince = $now.ToString('yyyy-MM-ddTHH:mm:ss')
+    Save-State $state
   }
-  $state.doneFp = $dfp
-  $state.doneSince = $now.ToString('yyyy-MM-ddTHH:mm:ss')
-  Save-State $state
 
   # 3. Tube laser packages: only files that are new or changed since the last run.
   $tubeNote = ''
@@ -527,7 +540,7 @@ try {
   }
 
   $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
-  $summary = "read in $secs s: $($waiting.Count) waiting, $doneCount completed since $($since.ToString('dd/MM HH:mm'))$tubeNote"
+  $summary = if ($TubeOnly) { "read in $secs s$tubeNote" } else { "read in $secs s: $($waiting.Count) waiting, $doneCount completed since $($since.ToString('dd/MM HH:mm'))$tubeNote" }
   if ($sent.Count) { Write-Log "$summary; sent $($sent -join ', ')" } else { Write-Log "$summary; no change, nothing sent" }
 }
 catch {
