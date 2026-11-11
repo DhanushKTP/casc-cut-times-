@@ -55,7 +55,7 @@ For long random text, run this in PowerShell and copy the result: `[guid]::NewGu
 
 ### 2. Master Excel sheet
 
-Create the workbook on SharePoint with a table named **`CutTimes`** and exactly these column headers. See [docs/master-sheet.md](docs/master-sheet.md).
+Upload the master workbook to SharePoint. It has one sheet and table per machine (`Laser3030`, `Laser1040`, `Tube7000`), each with exactly these column headers. See [docs/master-sheet.md](docs/master-sheet.md).
 
 ### 3. Power Automate
 
@@ -79,7 +79,7 @@ Open the Netlify address in Chrome, then tap **⋮ → Add to Home screen**. The
 
 Pick one program, enter times, submit, and check:
 - the tablet shows **In SharePoint** within a few seconds
-- the rows appear in the `CutTimes` table
+- the rows appear in that machine's table
 
 ## How the data works
 

@@ -161,6 +161,7 @@ export default async (req) => {
         body: JSON.stringify({
           submissionId,
           program: no,
+          machine: program.machineShort, // "3030", "1040" or "Tube 7000": the flow picks the sheet from this
           operator,
           rows,
           confirmUrl: `${siteUrl(req)}/api/confirm`,

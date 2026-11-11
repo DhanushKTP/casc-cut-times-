@@ -1,6 +1,14 @@
 # Master sheet
 
-One Excel workbook on SharePoint, for example `Laser Cut Times.xlsx`, with one **table** (Insert → Table, tick "My table has headers") named **`CutTimes`**. Power Automate can only add rows to a table, not to a plain range.
+One Excel workbook on SharePoint, for example `CASC Cut Times master.xlsx`, with **one sheet and one table per machine**. Power Automate can only add rows to a table, not to a plain range.
+
+| Sheet | Table name | Gets |
+|---|---|---|
+| `3030` | `Laser3030` | TruLaser 3030 submissions |
+| `1040` | `Laser1040` | TruLaser 1040 submissions |
+| `Tube 7000` | `Tube7000` | TruLaser Tube 7000 submissions |
+
+All three tables have the same columns, so one report formula works on any of them.
 
 Each submission adds one row per **line**:
 - **Flat lasers (3030 / 1040):** one line per customer/JN on the program.
@@ -34,6 +42,6 @@ The column headers must match exactly, in this order:
 | 22 | Entered at | `10/11/2026 09:45` | `11/11/2026 13:11` | When the operator pressed Submit |
 
 Tips:
-- Keep the table on its own sheet and do your reports on other sheets with formulas or pivot tables that point at `CutTimes`.
-- **Total cutting minutes** = `SUM(CutTimes[Minutes])`, which counts each program once because whole entries only fill the first row.
+- Keep each table on its own sheet and do your reports on other sheets with formulas or pivot tables that point at the tables.
+- **Total cutting minutes** for a machine = `SUM(Laser3030[Minutes])` (or `Laser1040`, `Tube7000`), which counts each program once because whole entries only fill the first row.
 - Avoid having the file open for editing all day on one PC. Excel Online and Power Automate cope with this, but a locked file is the most common reason a row fails to add.

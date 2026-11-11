@@ -18,6 +18,7 @@ Method: **POST**. Request Body JSON Schema:
   "properties": {
     "submissionId": { "type": "string" },
     "program": { "type": "string" },
+    "machine": { "type": "string" },
     "operator": { "type": "string" },
     "confirmUrl": { "type": "string" },
     "confirmToken": { "type": "string" },
@@ -62,15 +63,23 @@ Don't add a **Response** action. Without one, the flow answers Netlify straight 
 
 Inside it:
 
-1. **Apply to each** over `rows` (from the trigger).
-   Open its **Settings**, turn on **Concurrency control** and set it to **1**, so the rows go in in order.
-   - **Excel Online (Business) → Add a row into a table**
+1. **Switch** on `machine` (from the trigger). There's one sheet and one table per machine in the master workbook:
+
+   | Case equals | Table |
+   |---|---|
+   | `3030` | `Laser3030` (sheet "3030") |
+   | `1040` | `Laser1040` (sheet "1040") |
+   | `Tube 7000` | `Tube7000` (sheet "Tube 7000") |
+
+   In **each case**, add **Apply to each** over `rows` (from the trigger). In its **Settings**, turn on **Concurrency control** and set it to **1**, so the rows go in in order.
+   - Inside it: **Excel Online (Business) → Add a row into a table**
      - Location: your SharePoint site
      - Document Library: where the workbook is
      - File: the master workbook
-     - Table: `CutTimes`
-     - Map each column to the field with the same name. If the designer doesn't offer them, use expressions such as `items('Apply_to_each')?['Customer']`. The names with spaces work the same way: `items('Apply_to_each')?['Cut date']`.
-2. **HTTP** (after the loop)
+     - Table: that case's table
+     - Map each column to the field with the same name. If the designer doesn't offer them, use expressions such as `items('Apply_to_each')?['Customer']`. Names with spaces work the same way: `items('Apply_to_each')?['Cut date']`.
+   - **Default case** (a machine the workbook doesn't know yet): add a **Terminate** action with status **Failed**. That sends the run to "Catch", so you get an email instead of losing the rows.
+2. **HTTP** (after the Switch)
    - Method: `POST`
    - URI: `confirmUrl` (from the trigger)
    - Headers: `Content-Type` = `application/json`
@@ -132,10 +141,10 @@ In PowerShell (replace the URL with the main flow's):
 
 ```powershell
 $body = @{
-  submissionId = 'test-1'; program = 'TEST'; operator = 'Test'; confirmUrl = 'https://example.com'; confirmToken = 'x'
+  submissionId = 'test-1'; program = 'TEST'; machine = '3030'; operator = 'Test'; confirmUrl = 'https://example.com'; confirmToken = 'x'
   rows = @(@{ 'Submission ID'='test-1'; Line=1; Machine='3030'; Program='TEST'; Customer='Test'; JN='JN0'; Item='JN0'; Operator='Test'; 'Cut date'='10/11/2026'; Start='09:00'; End='09:10'; Minutes=10; 'Paused minutes'=0; Entry='Whole'; Timing='Typed' })
 } | ConvertTo-Json -Depth 4
 Invoke-RestMethod -Method Post -Uri '<FLOW_SUBMIT_URL>' -ContentType 'application/json' -Body $body
 ```
 
-The row should appear in `CutTimes`. The confirm step fails, because example.com isn't the app, and that triggers the Catch email, which tests that branch too. Delete the test row afterwards.
+The row should appear on the `3030` sheet. The confirm step fails, because example.com isn't the app, and that triggers the Catch email, which tests that branch too. Delete the test row afterwards.
