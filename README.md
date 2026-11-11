@@ -1,6 +1,6 @@
 # CASC Cut Times
 
-A tablet app for the laser operators. It lists every program nested in SigmaNEST, and the operator types the cut start and end times (for the whole program, or split per customer/JN). Each submission is added to the master Excel sheet on SharePoint through Power Automate.
+A tablet app for the laser operators. It lists every program nested in SigmaNEST for the flat lasers (TruLaser 3030 / 1040), and every production package saved for the TruLaser Tube 7000 under `S:\TruLaser7000`. The operator times each one with a stopwatch (Start / Pause / Resume / Stop) or types the start and end times, for the whole program or split per customer/JN (flat) or per tube type (tube). Each submission is added to the master Excel sheet on SharePoint through Power Automate.
 
 ```
 SigmaNEST SQL ──▶ Sync script on the office PC (every 2 min, read-only, outbound only)
@@ -83,6 +83,8 @@ Pick one program, enter times, submit, and check:
 
 ## How the data works
 
+- **Tube laser packages** come from the `.TPP` files under the tube folder. One `.TPP` = one entry. The JN comes from the job folder (for example `JN11460-B`). Tubes, parts and TRUMPF's machine time per part come from inside the file. The customer comes from the drawing path saved in the file (`…\Customers v2\<customer>\…`), or from SigmaNEST by JN.
+- **Stopwatch:** the timer is kept on the server (store `timers`), so it carries on when the tablet sleeps, reloads or another tablet opens the program. The minutes count running time only, and the paused time is recorded separately.
 - **Programs** come from `dbo.Program` (waiting) and `dbo.ProgArchive` with TransType `SN102` (completed). Parts come from `dbo.PIP` / `dbo.PIPArchive`, the customer from `dbo.Wo` / `dbo.WOArchive`, and next op from `Part.Data1`.
 - A program is identified by its **program number**. Repeats (the same nest cut several times) are one program with a sheet count, and get one entry.
 - **One entry per program.** Once submitted, the program is locked, and a second tablet trying the same program is refused.

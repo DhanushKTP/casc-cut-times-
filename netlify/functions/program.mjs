@@ -1,5 +1,5 @@
 // GET /api/program?no=54533 -> full program (parts, JN lines) plus its submission, if any.
-import { requireSession, readJSON, json, fail, loadProgram, SUBMISSIONS } from '../shared/core.mjs';
+import { requireSession, readJSON, json, fail, loadProgram, timerView, SUBMISSIONS, TIMERS } from '../shared/core.mjs';
 
 export default async (req) => {
   const { error } = requireSession(req);
@@ -14,11 +14,14 @@ export default async (req) => {
   const submission = sub
     ? {
         submissionId: sub.submissionId, operator: sub.operator, date: sub.date, mode: sub.mode,
-        rows: sub.rows, totalMinutes: sub.totalMinutes, enteredAt: sub.enteredAt,
+        rows: sub.rows, totalMinutes: sub.totalMinutes, enteredAt: sub.enteredAt, timing: sub.timing || 'typed',
         status: sub.status, syncedAt: sub.syncedAt ?? null, message: sub.message ?? null,
       }
     : null;
-  return json({ ok: true, program, submission });
+  const { data: t } = await readJSON(TIMERS, `timer-${no}`, null);
+  const now = Date.now();
+  const timers = t ? Object.fromEntries(Object.entries(t.lines || {}).map(([k, v]) => [k, timerView(v, now)])) : {};
+  return json({ ok: true, program, submission, timers, serverNow: now });
 };
 
 export const config = { path: '/api/program' };

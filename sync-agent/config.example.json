@@ -6,6 +6,7 @@
   "SqlPassword": "",
   "SiteUrl": "https://casc-cut-times.netlify.app",
   "SyncKey": "normally left out: '1 - Set up and test.bat' saves it encrypted as SyncKeyEncrypted",
+  "TubeFolder": "\\\\CASC-APPSRV-02\\sigmanest\\TruLaser7000",
   "StartDate": "2026-01-01",
   "BatchSize": 300
 }

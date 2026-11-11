@@ -1,15 +1,16 @@
 // GET /api/programs -> every program nested since START_DATE, with its time-entry status.
 import {
-  requireSession, readJSON, json, startDate, operators, PROGRAMS, SUBMISSIONS, EMPTY_SUMMARY,
+  requireSession, readJSON, json, startDate, operators, timersSummary, PROGRAMS, SUBMISSIONS, TIMERS, EMPTY_SUMMARY,
 } from '../shared/core.mjs';
 
 export default async (req) => {
   const { error } = requireSession(req);
   if (error) return error;
 
-  const [{ data: summary }, { data: status }] = await Promise.all([
+  const [{ data: summary }, { data: status }, { data: running }] = await Promise.all([
     readJSON(PROGRAMS, 'summary', EMPTY_SUMMARY),
     readJSON(SUBMISSIONS, 'status', {}),
+    readJSON(TIMERS, 'index', {}),
   ]);
   const s = summary ?? EMPTY_SUMMARY;
   const from = startDate();
@@ -22,15 +23,21 @@ export default async (req) => {
     if (when && when.slice(0, 10) < from) return;
     seen.add(p.no);
     const st = status?.[p.no];
-    out.push({ ...p, sigma, entry: st ? { status: st.status, operator: st.operator, at: st.at, minutes: st.minutes } : null });
+    out.push({
+      ...p, sigma,
+      entry: st ? { status: st.status, operator: st.operator, at: st.at, minutes: st.minutes } : null,
+      timer: !st && running?.[p.no] ? running[p.no] : null,
+    });
   };
   for (const p of Object.values(s.waiting || {})) add(p, 'waiting');
   for (const p of Object.values(s.done || {})) add(p, 'cleared');
+  for (const p of Object.values(s.tube || {})) add(p, 'tube');
 
   return json({
     ok: true,
     waitingUpdatedAt: s.waitingUpdatedAt,
     doneUpdatedAt: s.doneUpdatedAt,
+    tubeUpdatedAt: s.tubeUpdatedAt ?? null,
     startDate: from,
     operators: operators(),
     programs: out,

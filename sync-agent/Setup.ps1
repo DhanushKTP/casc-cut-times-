@@ -19,6 +19,14 @@ if (-not (Test-Path $configPath) -or $again -match '^[Yy]') {
   $server = Ask 'SQL Server' 'CASC-APPSRV-02\SIGMANEST'
   $db = Ask 'Database' 'SNDBase'
   $site = Ask 'Website' 'https://casc-cut-times.netlify.app'
+  $tube = Ask 'Tube laser folder (type - for none)' 'S:\TruLaser7000'
+  if ($tube -eq '-') { $tube = '' }
+  elseif ($tube -match '^([A-Za-z]):(.*)$') {
+    # A mapped drive letter may not exist for the scheduled task: store the network path instead.
+    $drive = Get-PSDrive -Name $Matches[1] -ErrorAction SilentlyContinue
+    if ($drive -and $drive.DisplayRoot -like '\\*') { $tube = $drive.DisplayRoot.TrimEnd('\') + $Matches[2]; Write-Host "  Using the network path $tube" }
+  }
+  if ($tube -and -not (Test-Path $tube)) { Write-Host "  Warning: $tube can't be reached from this PC right now." -ForegroundColor Yellow }
   $sec = Read-Host 'Sync key (the SYNC_KEY set in Netlify; nothing shows as you type)' -AsSecureString
   if ($sec.Length -eq 0) { throw 'The sync key is needed.' }
   $cfg = [ordered]@{
@@ -29,11 +37,26 @@ if (-not (Test-Path $configPath) -or $again -match '^[Yy]') {
     SqlPassword      = ''
     SiteUrl          = $site
     SyncKeyEncrypted = (ConvertFrom-SecureString $sec)   # Windows DPAPI: only this user on this PC can read it
+    TubeFolder       = $tube
     StartDate        = '2026-01-01'
     BatchSize        = 300
   }
   $cfg | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
   Write-Host 'Saved. The sync key is stored encrypted for your Windows user only.' -ForegroundColor Green
+}
+
+# Settings saved before the tube laser was added: ask for the folder only.
+$saved = Get-Content $configPath -Raw | ConvertFrom-Json
+if ($null -eq $saved.PSObject.Properties['TubeFolder']) {
+  $tube = Ask 'Tube laser folder (type - for none)' 'S:\TruLaser7000'
+  if ($tube -eq '-') { $tube = '' }
+  elseif ($tube -match '^([A-Za-z]):(.*)$') {
+    $drive = Get-PSDrive -Name $Matches[1] -ErrorAction SilentlyContinue
+    if ($drive -and $drive.DisplayRoot -like '\\*') { $tube = $drive.DisplayRoot.TrimEnd('\') + $Matches[2]; Write-Host "  Using the network path $tube" }
+  }
+  $saved | Add-Member -NotePropertyName TubeFolder -NotePropertyValue $tube
+  $saved | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
+  Write-Host 'Saved the tube laser folder.' -ForegroundColor Green
 }
 
 Write-Host ''

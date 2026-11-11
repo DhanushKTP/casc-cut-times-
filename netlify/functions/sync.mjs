@@ -1,6 +1,7 @@
 // POST /api/sync  (called only by the sync script on the PC, with the x-sync-key header)
 //   { kind: "waiting", programs: [...] }  -> replaces the list of programs waiting in SigmaNEST
 //   { kind: "done",    programs: [...] }  -> adds/updates programs completed in SigmaNEST
+//   { kind: "tube",    programs: [...] }  -> adds/updates TruLaser Tube 7000 production packages (.TPP)
 //   { kind: "ping" }                       -> checks the key and connection only
 import {
   env, safeEqual, json, fail, body, writeJSON, updateJSON, nowLocal, summarize, monthKey,
@@ -34,6 +35,38 @@ function clean(p) {
   };
 }
 
+function cleanTube(p) {
+  if (!p || !p.no) return null;
+  const tubes = Array.isArray(p.tubes) ? p.tubes : [];
+  return {
+    type: 'tube',
+    no: String(p.no).trim(),
+    machine: 'TruLaser Tube 7000',
+    jn: String(p.jn ?? ''),
+    customer: String(p.customer ?? ''),
+    job: String(p.job ?? ''),
+    file: String(p.file ?? ''),
+    profile: String(p.profile ?? ''),
+    profileLabel: String(p.profileLabel ?? ''),
+    material: String(p.material ?? ''),
+    rawLength: p.rawLength ? Number(p.rawLength) : null,
+    plannedSec: Number(p.plannedSec) || 0,
+    sheets: Number(p.sheets) || tubes.reduce((a, t) => a + (Number(t.runs) || 1), 0) || 1,
+    programmedBy: String(p.programmedBy ?? ''),
+    posted: p.posted ? String(p.posted) : null,
+    completed: null,
+    tubes: tubes.map((t) => ({
+      group: String(t.group ?? ''),
+      runs: Number(t.runs) || 1,
+      plannedSec: Number(t.plannedSec) || 0,
+      parts: (Array.isArray(t.parts) ? t.parts : []).map((x) => ({
+        part: String(x.part ?? ''), qty: Number(x.qty) || 0, plannedSec: Number(x.plannedSec) || 0,
+      })),
+    })),
+    parts: [],
+  };
+}
+
 export default async (req) => {
   if (req.method !== 'POST') return fail(405, 'Use POST.');
   const key = env('SYNC_KEY');
@@ -41,11 +74,24 @@ export default async (req) => {
   if (!safeEqual(req.headers.get('x-sync-key'), key)) return fail(401, 'Wrong sync key.');
 
   const b = await body(req);
-  if (!b || !['waiting', 'done', 'ping'].includes(b.kind)) return fail(400, 'kind must be waiting, done or ping.');
+  if (!b || !['waiting', 'done', 'tube', 'ping'].includes(b.kind)) return fail(400, 'kind must be waiting, done, tube or ping.');
   if (b.kind === 'ping') return json({ ok: true, at: nowLocal() });
 
-  const programs = (Array.isArray(b.programs) ? b.programs : []).map(clean).filter(Boolean);
   const at = nowLocal();
+  if (b.kind === 'tube') {
+    const packs = (Array.isArray(b.programs) ? b.programs : []).map(cleanTube).filter(Boolean);
+    await updateJSON(PROGRAMS, 'tube', { programs: {} }, (m) => {
+      for (const p of packs) m.programs[p.no] = p;
+    });
+    await updateJSON(PROGRAMS, 'summary', EMPTY_SUMMARY, (s) => {
+      s.tube ??= {};
+      for (const p of packs) s.tube[p.no] = summarize(p, 'tube');
+      s.tubeUpdatedAt = at;
+    });
+    return json({ ok: true, kind: 'tube', count: packs.length, at });
+  }
+
+  const programs = (Array.isArray(b.programs) ? b.programs : []).map(clean).filter(Boolean);
 
   if (b.kind === 'waiting') {
     const map = Object.fromEntries(programs.map((p) => [p.no, p]));

@@ -179,12 +179,12 @@ export function shortMachine(name) {
   return m ? m[1] : String(name || '').replace(/_/g, ' ');
 }
 
-// One line per JN (work order) on the program, with its customer and planned seconds.
+// One line per JN (work order) on a flat-laser program, with its customer and planned seconds per sheet.
 export function buildLines(parts = []) {
   const map = new Map();
   for (const p of parts) {
     const jn = String(p.wo ?? '').trim() || '(no W/O)';
-    const line = map.get(jn) ?? { jn, customer: '', plannedSec: 0 };
+    const line = map.get(jn) ?? { key: jn, label: jn, jn, customer: '', plannedSec: 0 };
     if (!line.customer && p.customer) line.customer = String(p.customer).trim();
     line.plannedSec += Number(p.plannedSec) || 0;
     map.set(jn, line);
@@ -192,9 +192,48 @@ export function buildLines(parts = []) {
   return [...map.values()].map((l) => ({ ...l, customer: l.customer || '—', plannedSec: Math.round(l.plannedSec) }));
 }
 
+// The lines an entry can be split into, with planned seconds for the whole run (all sheets / all tubes).
+// Flat laser: one line per JN. Tube laser: one line per tube type ("Tube 1 × 13").
+export function entryLines(p) {
+  if (p.type === 'tube') {
+    return (p.tubes || []).map((t, i) => ({
+      key: t.group || `tube-${i + 1}`,
+      label: `Tube ${i + 1} × ${t.runs}`,
+      jn: p.jn || '',
+      customer: p.customer || '—',
+      plannedSec: Math.round((Number(t.plannedSec) || 0) * (Number(t.runs) || 1)),
+    }));
+  }
+  const sheets = Number(p.sheets) || 1;
+  return buildLines(p.parts).map((l) => ({ ...l, plannedSec: Math.round(l.plannedSec * sheets) }));
+}
+
+export function plannedTotal(p) {
+  if (p.type === 'tube') return Math.round(Number(p.plannedSec) || 0);
+  return Math.round((Number(p.plannedSec) || 0) * (Number(p.sheets) || 1));
+}
+
 export function summarize(p, src) {
+  if (p.type === 'tube') {
+    return {
+      no: String(p.no),
+      type: 'tube',
+      title: p.job || '',
+      machine: 'Tube 7000',
+      material: p.profileLabel || p.profile || '',
+      thickness: null,
+      sheet: p.profile || '',
+      plannedSec: Math.round(Number(p.plannedSec) || 0),
+      sheets: Number(p.sheets) || 1,
+      posted: p.posted ?? null,
+      completed: null,
+      src,
+      lines: [{ customer: p.customer || '—', jn: p.jn || '' }],
+    };
+  }
   return {
     no: String(p.no),
+    type: 'laser',
     machine: shortMachine(p.machine),
     material: p.material ?? '',
     thickness: p.thickness ?? null,
@@ -213,24 +252,50 @@ export function monthKey(iso) {
   return m ? `done-${m[1]}-${m[2]}` : 'done-unknown';
 }
 
-export const EMPTY_SUMMARY = { waitingUpdatedAt: null, doneUpdatedAt: null, waiting: {}, done: {} };
+export const EMPTY_SUMMARY = { waitingUpdatedAt: null, doneUpdatedAt: null, tubeUpdatedAt: null, waiting: {}, done: {}, tube: {} };
 
-// Full program by number, from whichever list it is in (waiting wins over completed).
+// Full program by number, from whichever list it is in (waiting wins over completed; tube packages separate).
 export async function loadProgram(no) {
   const { data: summary } = await readJSON(PROGRAMS, 'summary', EMPTY_SUMMARY);
   const s = summary ?? EMPTY_SUMMARY;
-  const sigma = s.waiting?.[no] ? 'waiting' : s.done?.[no] ? 'cleared' : null;
+  const sigma = s.waiting?.[no] ? 'waiting' : s.done?.[no] ? 'cleared' : s.tube?.[no] ? 'tube' : null;
   if (!sigma) return null;
-  const src = sigma === 'waiting' ? 'waiting' : s.done[no].src;
+  const src = sigma === 'waiting' ? 'waiting' : sigma === 'tube' ? 'tube' : s.done[no].src;
   const { data } = await readJSON(PROGRAMS, src, null);
   const p = data?.programs?.[no];
   if (!p) return null;
   return {
     ...p,
-    machineShort: shortMachine(p.machine),
+    type: p.type === 'tube' ? 'tube' : 'laser',
+    machineShort: p.type === 'tube' ? 'Tube 7000' : shortMachine(p.machine),
     sigma,
-    lines: buildLines(p.parts),
+    plannedTotalSec: plannedTotal(p),
+    lines: entryLines(p),
   };
+}
+
+/* ------------------------------------------------------------------ timers */
+
+// Stopwatch state lives here (not on the tablet), so it survives sleep, reloads and a second tablet.
+// One timer per line: "all" for the whole program, or a line key when split.
+export const TIMERS = 'timers';
+
+export function timerView(t, now = Date.now()) {
+  if (!t) return null;
+  const runSec = (t.runSec || 0) + (t.runningSince ? (now - t.runningSince) / 1000 : 0);
+  return {
+    status: t.status, operator: t.operator, firstStart: t.firstStart, lastStop: t.lastStop || null,
+    runSec: Math.round(runSec), pauses: t.pauses || 0, runningSince: t.runningSince || null,
+    startedAtLocal: t.startedAtLocal || null, stoppedAtLocal: t.stoppedAtLocal || null,
+  };
+}
+
+export function timersSummary(rec) {
+  // For the list: is anything running/paused on this program?
+  const lines = Object.values(rec?.lines || {});
+  if (!lines.length) return null;
+  const st = lines.some((l) => l.status === 'running') ? 'running' : lines.some((l) => l.status === 'paused') ? 'paused' : 'stopped';
+  return { status: st, operator: rec.operator };
 }
 
 /* ------------------------------------------------------------ notifications */

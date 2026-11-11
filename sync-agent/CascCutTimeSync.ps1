@@ -240,6 +240,128 @@ function Build-Done($progRows, $partRows) {
   return @($byProg.Values)
 }
 
+# ------------------------------------------------------------------ tube laser (TruLaser Tube 7000)
+# Production packages (.TPP) saved under TubeFolder, e.g. S:\TruLaser7000\JN11000-11999\JN11929\*.TPP.
+# Everything on the printed production package is inside the .TPP (it is XML with the NC programs).
+
+function Get-TubeJn([string]$relPath) {
+  $parts = $relPath -split '[\\/]'
+  for ($i = $parts.Count - 2; $i -ge 0; $i--) {
+    if ($parts[$i] -match '^(JN\d{4,6}(?:[-_ ][A-Z]{1,2}\b)?)') { return ($Matches[1].ToUpper() -replace '[_ ]', '-') }
+  }
+  if ($relPath -match '(JN\d{4,6}(?:-[A-Z]{1,2})?)') { return $Matches[1].ToUpper() }
+  return ''
+}
+
+function Get-ProfileLabel([string]$job, [string]$jn) {
+  $base = ($jn -split '-')[0]
+  $t = $job -replace [regex]::Escape($jn), '' -replace [regex]::Escape($base), ''
+  $t = $t -replace '(?i)point', '.' -replace '[_-]+', ' '
+  return ($t -replace '\s+', ' ').Trim()
+}
+
+function Get-Seconds([string]$hms) {
+  $p = ($hms -replace '\s', '') -split ':'
+  if ($p.Count -ne 3) { return 0 }
+  return [int]$p[0] * 3600 + [int]$p[1] * 60 + [int]$p[2]
+}
+
+function Read-TubePackage([string]$fullPath, [string]$relPath) {
+  $s = [IO.File]::ReadAllText($fullPath)
+  $rx = [Text.RegularExpressions.RegexOptions]::Singleline
+  $job = if ($s -match 'JobName="([^"]+)"') { $Matches[1] } else { [IO.Path]::GetFileNameWithoutExtension($fullPath) }
+  $raw = if ($s -match '<fmc:DesiredTubeLength unit="mm" value="([\d.]+)"') { [double]$Matches[1] } else { $null }
+
+  # NC programs: name, machine time (s), drawing path, creator, profile
+  $progs = @{}
+  $creator = ''; $profile = ''; $customer = ''
+  $blocks = $s -split 'BEGIN_EINRICHTEPLAN_INFO'
+  for ($i = 1; $i -lt $blocks.Count; $i++) {
+    $b = $blocks[$i]
+    $m = [regex]::Match($b, "ZA,DA,1\s*\r?\nDA,(.*?)\r?\nC\r?\n", $rx)
+    if (-not $m.Success) { continue }
+    $da = $m.Groups[1].Value -replace '\r?\n\*\s*', ''
+    $strs = [regex]::Matches($da, "'([^']*)'") | ForEach-Object { $_.Groups[1].Value }
+    if ($strs.Count -lt 4) { continue }
+    $name = $strs[3]
+    $sec = 0
+    $tm = [regex]::Match($b, "INTERNAL_DATA',101,1,'','T','','([\d :]+)\[")
+    if ($tm.Success) { $sec = Get-Seconds $tm.Groups[1].Value }
+    $progs[$name] = $sec
+    if (-not $customer) {
+      $pm = [regex]::Match($b, "INTERNAL_DATA',290,1,'','T','',\s*\r?\n?\*?\s*'([^']+)'")
+      if ($pm.Success -and $pm.Groups[1].Value -match '(?i)Customers v2\\([^\\]+)\\') { $customer = $Matches[1].Trim() }
+    }
+    if (-not $creator -and $b -match 'Creator: (\S+)') { $creator = $Matches[1] }
+    if (-not $profile -and $b -match 'TC_TUBE_TECH\("([^"]+)"\)') { $profile = $Matches[1] }
+  }
+
+  # Program groups = tube types; production orders = how many times each tube type runs
+  $groups = @{}
+  foreach ($g in [regex]::Matches($s, '<fmc:ProgramGroup Name="([^"]+)".*?</fmc:ProgramGroup>', $rx)) {
+    $list = New-Object System.Collections.ArrayList
+    foreach ($pp in [regex]::Matches($g.Value, 'OrderValueText="([^"]+)" Quantity="(\d+)"')) {
+      $pn = $pp.Groups[1].Value; $q = [int]$pp.Groups[2].Value
+      $ps = if ($progs.ContainsKey($pn)) { $progs[$pn] } else { 0 }
+      [void]$list.Add([ordered]@{ part = $pn; qty = $q; plannedSec = $ps })
+    }
+    $groups[$g.Groups[1].Value] = $list
+  }
+  $tubes = New-Object System.Collections.ArrayList
+  $total = 0; $count = 0
+  foreach ($o in [regex]::Matches($s, '<fmc:ProductionOrder DesiredQuantity="(\d+)" Name="[^"]+" OrderType="([^"]+)" OrderValueText="([^"]+)"')) {
+    $runs = [int]$o.Groups[1].Value; $val = $o.Groups[3].Value
+    $plist = $groups[$val]
+    if ($null -eq $plist) {
+      # an order straight on one program, not a group
+      $plist = New-Object System.Collections.ArrayList
+      $ps = if ($progs.ContainsKey($val)) { $progs[$val] } else { 0 }
+      [void]$plist.Add([ordered]@{ part = $val; qty = 1; plannedSec = $ps })
+    }
+    $tsec = 0; foreach ($x in $plist) { $tsec += $x.qty * $x.plannedSec }
+    [void]$tubes.Add([ordered]@{ group = $val; runs = $runs; plannedSec = $tsec; parts = $plist })
+    $total += $runs * $tsec; $count += $runs
+  }
+
+  $jn = Get-TubeJn $relPath
+  $sha = [System.Security.Cryptography.SHA1]::Create()
+  $id = 'T-' + ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($relPath.ToLowerInvariant()))).Replace('-', '').Substring(0, 12))
+  return [ordered]@{
+    no           = $id
+    jn           = $jn
+    customer     = $customer
+    job          = $job
+    file         = $relPath
+    profile      = $profile
+    profileLabel = Get-ProfileLabel $job $jn
+    rawLength    = $raw
+    plannedSec   = $total
+    sheets       = [math]::Max(1, $count)
+    programmedBy = $creator
+    posted       = (Get-Item $fullPath).LastWriteTime.ToString('yyyy-MM-ddTHH:mm:ss')
+    tubes        = $tubes
+  }
+}
+
+# Customer by JN from SigmaNEST, for packages whose drawing path doesn't name one.
+function Find-Customers($conn, $jns) {
+  $out = @{}
+  if (-not $conn -or -not $jns.Count) { return $out }
+  $sql = @'
+SELECT TOP 1 CustomerName FROM (
+  SELECT CustomerName, 1 AS o FROM dbo.Wo WHERE WONumber = @jn OR WONumber LIKE @like
+  UNION ALL
+  SELECT CustomerName, 2 AS o FROM dbo.WOArchive WHERE WONumber = @jn OR WONumber LIKE @like
+) x WHERE CustomerName IS NOT NULL AND CustomerName <> '' ORDER BY o
+'@
+  foreach ($jn in $jns) {
+    $base = ($jn -split '-')[0]
+    $t = Invoke-Query $conn $sql @{ '@jn' = $jn; '@like' = "$base%" }
+    if ($t.Rows.Count) { $out[$jn] = Str $t.Rows[0].CustomerName }
+  }
+  return $out
+}
+
 # ------------------------------------------------------------------ send
 
 function ConvertTo-ProgramsJson($programs) {
@@ -269,14 +391,15 @@ function Send-Sync([string]$kind, $programs) {
 }
 
 function Read-State {
-  $s = [ordered]@{ doneSince = $null; waitingFp = $null; waitingAt = $null; doneFp = $null }
+  $s = [ordered]@{ doneSince = $null; waitingFp = $null; waitingAt = $null; doneFp = $null; tubeFiles = @{} }
   if (Test-Path $statePath) {
     $f = Get-Content $statePath -Raw | ConvertFrom-Json
-    foreach ($k in @($s.Keys)) { if ($f.$k) { $s[$k] = $f.$k } }
+    foreach ($k in @($s.Keys)) { if ($f.$k -and $k -ne 'tubeFiles') { $s[$k] = $f.$k } }
+    if ($f.tubeFiles) { foreach ($p in $f.tubeFiles.PSObject.Properties) { $s.tubeFiles[$p.Name] = $p.Value } }
   }
   return $s
 }
-function Save-State($s) { $s | ConvertTo-Json | Set-Content -Path $statePath -Encoding UTF8 }
+function Save-State($s) { $s | ConvertTo-Json -Depth 4 | Set-Content -Path $statePath -Encoding UTF8 }
 
 # ------------------------------------------------------------------- run
 
@@ -288,6 +411,12 @@ try {
   if ($Test) {
     $n = (Invoke-Query $conn 'SELECT COUNT(*) AS n FROM dbo.Program').Rows[0].n
     Write-Log "SQL OK: $($cfg.SqlServer) / $($cfg.Database), $n program rows waiting in SigmaNEST."
+    if ($cfg.TubeFolder) {
+      if (Test-Path $cfg.TubeFolder) {
+        $nt = @(Get-ChildItem -Path $cfg.TubeFolder -Recurse -File -Filter '*.tpp' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -ge [datetime]::ParseExact($cfg.StartDate, 'yyyy-MM-dd', $null) }).Count
+        Write-Log "Tube folder OK: $($cfg.TubeFolder), $nt production packages since $($cfg.StartDate)."
+      } else { throw "the tube folder $($cfg.TubeFolder) can't be reached from this PC." }
+    }
     try {
       $ping = Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body '{"kind":"ping"}' -ContentType 'application/json' -Headers @{ 'x-sync-key' = $syncKey } -TimeoutSec 30
       Write-Log "Site OK: $site accepted the sync key (site time $($ping.at))."
@@ -358,8 +487,47 @@ try {
   $state.doneSince = $now.ToString('yyyy-MM-ddTHH:mm:ss')
   Save-State $state
 
+  # 3. Tube laser packages: only files that are new or changed since the last run.
+  $tubeNote = ''
+  if ($cfg.TubeFolder) {
+    if (-not (Test-Path $cfg.TubeFolder)) {
+      Write-Log "WARNING: tube folder $($cfg.TubeFolder) can't be reached, tube packages skipped this run."
+    } else {
+      $root = (Resolve-Path $cfg.TubeFolder).ProviderPath.TrimEnd('\')
+      $files = Get-ChildItem -Path $root -Recurse -File -Filter '*.tpp' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $start }
+      $changed = New-Object System.Collections.ArrayList
+      foreach ($f in $files) {
+        $rel = $f.FullName.Substring($root.Length).TrimStart('\')
+        $stamp = $f.LastWriteTimeUtc.Ticks.ToString() + ':' + $f.Length
+        if ($Force -or $state.tubeFiles[$rel] -ne $stamp) { [void]$changed.Add(@{ full = $f.FullName; rel = $rel; stamp = $stamp }) }
+      }
+      if ($changed.Count) {
+        $packs = New-Object System.Collections.ArrayList
+        $bad = 0
+        foreach ($c in $changed) {
+          try { [void]$packs.Add((Read-TubePackage $c.full $c.rel)) }
+          catch { $bad++; Write-Log "  couldn't read $($c.rel): $($_.Exception.Message)" }
+        }
+        $need = @($packs | Where-Object { -not $_.customer -and $_.jn } | ForEach-Object { $_.jn } | Select-Object -Unique)
+        $cust = Find-Customers $conn $need
+        foreach ($p in $packs) { if (-not $p.customer -and $cust.ContainsKey($p.jn)) { $p.customer = $cust[$p.jn] } }
+        $arr = @($packs)
+        for ($i = 0; $i -lt $arr.Count; $i += 100) {
+          $chunk = $arr[$i..([math]::Min($i + 100, $arr.Count) - 1)]
+          [void](Send-Sync 'tube' $chunk)
+        }
+        foreach ($c in $changed) { $state.tubeFiles[$c.rel] = $c.stamp }
+        Save-State $state
+        $sent += "tube packages ($($arr.Count))"
+        if ($bad) { $sent += "$bad unreadable" }
+      }
+      $tubeNote = ", $(@($files).Count) tube packages"
+    }
+  }
+
   $secs = [math]::Round(((Get-Date) - $t0).TotalSeconds, 1)
-  $summary = "read SigmaNEST in $secs s: $($waiting.Count) waiting, $doneCount completed since $($since.ToString('dd/MM HH:mm'))"
+  $summary = "read in $secs s: $($waiting.Count) waiting, $doneCount completed since $($since.ToString('dd/MM HH:mm'))$tubeNote"
   if ($sent.Count) { Write-Log "$summary; sent $($sent -join ', ')" } else { Write-Log "$summary; no change, nothing sent" }
 }
 catch {

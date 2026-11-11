@@ -28,22 +28,25 @@ Method: **POST**. Request Body JSON Schema:
         "properties": {
           "Submission ID": { "type": "string" },
           "Line": { "type": "integer" },
+          "Machine": { "type": "string" },
           "Program": { "type": "string" },
-          "Laser": { "type": "string" },
+          "JN": { "type": "string" },
+          "Customer": { "type": "string" },
+          "Item": { "type": "string" },
           "Material": { "type": "string" },
           "Thickness (mm)": {},
-          "Sheet": { "type": "string" },
-          "Sheets": { "type": "integer" },
+          "Sheet / profile": { "type": "string" },
+          "Sheets / tubes": { "type": "integer" },
           "Posted": { "type": "string" },
-          "Customer": { "type": "string" },
-          "JN": { "type": "string" },
           "Operator": { "type": "string" },
           "Cut date": { "type": "string" },
           "Start": { "type": "string" },
           "End": { "type": "string" },
           "Minutes": {},
+          "Paused minutes": {},
           "Planned minutes": {},
           "Entry": { "type": "string" },
+          "Timing": { "type": "string" },
           "Entered at": { "type": "string" }
         }
       }
@@ -130,7 +133,7 @@ In PowerShell (replace the URL with the main flow's):
 ```powershell
 $body = @{
   submissionId = 'test-1'; program = 'TEST'; operator = 'Test'; confirmUrl = 'https://example.com'; confirmToken = 'x'
-  rows = @(@{ 'Submission ID'='test-1'; Line=1; Program='TEST'; Customer='Test'; JN='JN0'; Operator='Test'; 'Cut date'='10/11/2026'; Start='09:00'; End='09:10'; Minutes=10; Entry='Whole' })
+  rows = @(@{ 'Submission ID'='test-1'; Line=1; Machine='3030'; Program='TEST'; Customer='Test'; JN='JN0'; Item='JN0'; Operator='Test'; 'Cut date'='10/11/2026'; Start='09:00'; End='09:10'; Minutes=10; 'Paused minutes'=0; Entry='Whole'; Timing='Typed' })
 } | ConvertTo-Json -Depth 4
 Invoke-RestMethod -Method Post -Uri '<FLOW_SUBMIT_URL>' -ContentType 'application/json' -Body $body
 ```
