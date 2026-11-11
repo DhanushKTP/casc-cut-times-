@@ -16,3 +16,8 @@
   for = "/index.html"
   [headers.values]
     Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/app.*"
+  [headers.values]
+    Cache-Control = "no-cache"
