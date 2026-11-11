@@ -105,6 +105,7 @@ export default async (req) => {
   // Each line's share of the time, so per-JN totals add up even for a whole-program entry.
   // Split: the line's own time. Whole: the program's time shared by each line's planned time
   // (equal shares if nothing is planned); the last line takes the rounding so the shares add up exactly.
+  const jnColumns = /^(yes|true|1)$/i.test(env('MASTER_JN_COLUMNS') || '');
   const plannedSum = lines.reduce((a, l) => a + (Number(l.plannedSec) || 0), 0);
   const shareMin = [];
   const sharePlanned = lines.map((l) => mins(Number(l.plannedSec) || 0));
@@ -143,8 +144,9 @@ export default async (req) => {
     'Entry': mode === 'split' ? (isTube ? 'Split by tube' : 'Split by customer') : 'Whole',
     'Timing': timing === 'stopwatch' ? 'Stopwatch' : 'Typed',
     'Entered at': ukDateTime(enteredAt),
-    'JN minutes': shareMin[i],
-    'JN planned minutes': sharePlanned[i],
+    // Sent only once the master tables have these two columns (Netlify variable MASTER_JN_COLUMNS=yes),
+    // because Power Automate can't add a row with a column the table doesn't have.
+    ...(jnColumns ? { 'JN minutes': shareMin[i], 'JN planned minutes': sharePlanned[i] } : {}),
   }));
 
   const record = {
