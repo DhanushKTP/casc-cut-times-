@@ -28,7 +28,7 @@ The column headers must match exactly, in this order:
 | 16 | End | `09:32` | `13:10` | Empty on rows 2+ of a whole entry |
 | 17 | Minutes | `18` | `31.5` | Running time. The stopwatch gives one decimal. Empty on rows 2+ of a whole entry. |
 | 18 | Paused minutes | `0` | `3.5` | Time the stopwatch was paused between Start and End |
-| 19 | Planned minutes | `17` | `8` | Planned cut time from SigmaNEST / TRUMPF. Same rule as Minutes. |
+| 19 | Planned minutes | `49.5` | `8.2` | Planned cut time from SigmaNEST / TRUMPF, one decimal (49:30 = 49.5). Same rule as Minutes. |
 | 20 | Entry | `Split by customer` | `Whole` | `Whole`, `Split by customer` or `Split by tube` |
 | 21 | Timing | `Typed` | `Stopwatch` | Whether the times came from the stopwatch or were typed |
 | 22 | Entered at | `10/11/2026 09:45` | `11/11/2026 13:11` | When the operator pressed Submit |

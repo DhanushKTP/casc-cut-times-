@@ -298,7 +298,7 @@
         <div class="row2"><span>Entry</span><b>${s.mode === 'split' ? (p.type === 'tube' ? 'Split by tube' : 'Split by customer') : 'Whole'} · ${s.timing === 'stopwatch' ? 'Stopwatch' : 'Typed'}</b></div>
       </div>
       <div class="lines">${s.rows.map((r) => `<div class="ln"><span><b>${esc(r.Customer)}</b> <em>${esc(r.Item)}</em></span><em>${r.Start ? `${esc(r.Start)}–${esc(r.End)} · ${esc(r.Minutes)} min${r['Paused minutes'] ? ` (+${esc(r['Paused minutes'])} paused)` : ''}` : ''}</em></div>`).join('')}</div>
-      <div class="total"><span>Total <b>${esc(s.totalMinutes)} min</b></span><span>Planned ${minsOf(p.plannedTotalSec)} min</span></div>
+      <div class="total"><span>Total <b>${esc(s.totalMinutes)} min</b></span><span>Planned ${hms(p.plannedTotalSec)}</span></div>
       ${s.status === 'failed' ? `<p class="err">Not in the master sheet yet${s.message ? `: ${esc(s.message)}` : ''}. Dhanush has been emailed.</p>` : ''}
       <p class="small">Submitted programs are locked. Ask your supervisor if something is wrong.</p>`;
   }
@@ -363,7 +363,7 @@
 
   function entryHtml(p) {
     const e = state.entry;
-    const planned = minsOf(p.plannedTotalSec);
+    const planned = (Number(p.plannedTotalSec) || 0) / 60;
     const total = entryMinutes(p, e);
     const bad = (k) => (e.errors[k] ? ' bad' : '');
     const timeInput = (key, val, label) => `<input class="tin${bad(key)}" data-time="${esc(key)}" value="${esc(val)}" inputmode="numeric" maxlength="5" placeholder="--:--" aria-label="${esc(label)}" autocomplete="off">`;
@@ -380,18 +380,18 @@
             <div class="wstatus">${esc(watchStatusText(t))}</div>
             <div class="wbtns">${watchButtons('all', t, true)}</div>
           </div>
-          <div class="total"><span><b>${total === null ? '–' : `${total} min`}</b> running time</span><span>Planned ${planned} min</span></div>
+          <div class="total"><span><b>${total === null ? '–' : `${total} min`}</b> running time</span><span>Planned ${hms(p.plannedTotalSec)}</span></div>
           <div class="lines"><span class="k" style="margin-bottom:4px">${p.type === 'tube' ? 'In this package' : 'On this program'}</span>${p.lines.map((l) => `<div class="ln"><b>${esc(lineName(l))}</b><em>${esc(p.type === 'tube' ? `${l.customer} · ${l.jn}` : l.jn)}</em></div>`).join('')}</div>`;
       } else {
         body = `<div class="split-list">${p.lines.map((l) => {
           const t = state.timers[l.key];
           return `<div class="wrow ${t ? t.status : 'idle'}">
-            <span class="who-line"><b>${esc(lineName(l))}</b><em>${esc(lineSub(l))}</em><small>Planned ${minsOf(l.plannedSec)} min · ${esc(watchStatusText(t))}</small></span>
+            <span class="who-line"><b>${esc(lineName(l))}</b><em>${esc(lineSub(l))}</em><small>Planned ${hms(l.plannedSec)} · ${esc(watchStatusText(t))}</small></span>
             <span class="clock sm mono" data-clock="${esc(l.key)}">${hms(runSecOf(t))}</span>
             <span class="wbtns">${watchButtons(l.key, t, false)}</span>
           </div>`;
         }).join('')}</div>
-        <div class="total"><span>Total <b>${total === null ? '–' : `${total} min`}</b></span><span>Planned ${planned} min</span></div>`;
+        <div class="total"><span>Total <b>${total === null ? '–' : `${total} min`}</b></span><span>Planned ${hms(p.plannedTotalSec)}</span></div>`;
       }
     } else if (e.mode === 'whole') {
       body = `<div class="fields">
@@ -399,7 +399,7 @@
           <label class="field">Start${timeInput('whole.start', e.whole.start, 'Start time')}</label>
           <label class="field">End${timeInput('whole.end', e.whole.end, 'End time')}</label>
         </div>
-        <div class="total"><span><b>${total === null ? '–' : `${total} min`}</b> cut</span><span>Planned ${planned} min</span></div>`;
+        <div class="total"><span><b>${total === null ? '–' : `${total} min`}</b> cut</span><span>Planned ${hms(p.plannedTotalSec)}</span></div>`;
     } else {
       body = `<label class="datefield">Date<input class="tin date${bad('date')}" data-date value="${esc(e.date)}" inputmode="numeric" maxlength="10" placeholder="DD/MM/YYYY" autocomplete="off"></label>
         <div class="split-head"><span>${p.type === 'tube' ? 'Tube' : 'Customer · JN'}</span><span style="text-align:center">Start</span><span style="text-align:center">End</span><span style="text-align:right">Min</span></div>
@@ -408,12 +408,12 @@
           const s = parseTime(v.start); const en = parseTime(v.end);
           const m = s !== null && en !== null && en > s ? en - s : '';
           return `<div class="split-row">
-            <span class="who-line"><b>${esc(lineName(l))}</b><em>${esc(lineSub(l))}</em><small>Planned ${minsOf(l.plannedSec)} min</small></span>
+            <span class="who-line"><b>${esc(lineName(l))}</b><em>${esc(lineSub(l))}</em><small>Planned ${hms(l.plannedSec)}</small></span>
             ${timeInput(`line.${l.key}.start`, v.start, `${lineName(l)} start`)}
             ${timeInput(`line.${l.key}.end`, v.end, `${lineName(l)} end`)}
             <span class="m">${m}</span></div>`;
         }).join('')}</div>
-        <div class="total"><span>Total <b>${total === null ? '–' : `${total} min`}</b></span><span>Planned ${planned} min</span></div>`;
+        <div class="total"><span>Total <b>${total === null ? '–' : `${total} min`}</b></span><span>Planned ${hms(p.plannedTotalSec)}</span></div>`;
     }
     return `<div class="entry-head"><h2>Cut times</h2>
         <button class="link-btn sm" data-act="timing">${e.timing === 'stopwatch' ? 'Type times instead' : 'Use the stopwatch'}</button></div>
@@ -445,7 +445,7 @@
 
   function confirmHtml(p) {
     const e = state.entry;
-    const planned = minsOf(p.plannedTotalSec);
+    const planned = (Number(p.plannedTotalSec) || 0) / 60;
     const total = entryMinutes(p, e);
     const rows = confirmRows(p, e);
     const date = e.timing === 'stopwatch'
@@ -453,8 +453,8 @@
       : e.date;
     let warn = '';
     if (planned > 0 && total !== null) {
-      if (total < planned / 2) warn = `This is much shorter than planned (${planned} min). Check the times before submitting.`;
-      else if (total > planned * 2) warn = `This is much longer than planned (${planned} min). Check the times before submitting.`;
+      if (total < planned / 2) warn = `This is much shorter than planned (${hms(p.plannedTotalSec)}). Check the times before submitting.`;
+      else if (total > planned * 2) warn = `This is much longer than planned (${hms(p.plannedTotalSec)}). Check the times before submitting.`;
     }
     const title = p.type === 'tube' ? `${p.jn} ${p.profileLabel || ''}`.trim() : p.no;
     return `<div class="veil" role="dialog" aria-modal="true" aria-labelledby="ct">
@@ -468,7 +468,7 @@
         </div>
         <table><thead><tr><th>${p.type === 'tube' ? 'Tube' : 'Customer'}</th><th>${p.type === 'tube' ? 'Customer' : 'JN'}</th><th>Time</th><th style="text-align:right">Min</th></tr></thead>
           <tbody>${rows.map((r) => `<tr><td><b>${esc(r[0])}</b></td><td class="mono" style="font-size:14px">${esc(r[1])}</td><td class="mono">${esc(r[2])}</td><td class="mono" style="text-align:right">${esc(r[3])}</td></tr>`).join('')}</tbody></table>
-        <div class="sum"><span>Total <b class="mono">${total} min</b></span><span style="color:#3b4f63">Planned ${planned} min</span></div>
+        <div class="sum"><span>Total <b class="mono">${total} min</b></span><span style="color:#3b4f63">Planned ${hms(p.plannedTotalSec)}</span></div>
         ${warn ? `<div class="warn">${esc(warn)}</div>` : ''}
         <div class="acts">
           <button class="secondary" data-act="cancel-confirm" ${state.sending ? 'disabled' : ''}>Go back and edit</button>

@@ -33,7 +33,7 @@ function watchSpan(t, label) {
   };
 }
 
-const mins = (sec) => Math.round((Number(sec) || 0) / 60);
+const mins = (sec) => Math.round((Number(sec) || 0) / 6) / 10; // planned minutes, one decimal (49:30 -> 49.5)
 
 export default async (req) => {
   if (req.method !== 'POST') return fail(405, 'Use POST.');
