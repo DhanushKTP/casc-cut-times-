@@ -24,11 +24,11 @@ export function startDate() {
 
 /* ----------------------------------------------------------------- storage */
 
-const stores = {};
+// Get the store fresh on every call. Netlify gives each request its own short-lived Blobs token, so a store
+// kept from an earlier request (a "warm" function) fails with "Failed to decode token: Token expired".
 export function store(name) {
   if (globalThis.__TEST_STORE__) return globalThis.__TEST_STORE__(name);
-  stores[name] ??= getStore({ name, consistency: 'strong' });
-  return stores[name];
+  return getStore({ name, consistency: 'strong' });
 }
 
 export async function readJSON(storeName, key, fallback = null) {
