@@ -108,7 +108,12 @@ export default async (req) => {
   const jnColumns = /^(yes|true|1)$/i.test(env('MASTER_JN_COLUMNS') || '');
   const plannedSum = lines.reduce((a, l) => a + (Number(l.plannedSec) || 0), 0);
   const shareMin = [];
+  // Planned share per line; the last line takes the rounding so they add up to the program's planned minutes.
   const sharePlanned = lines.map((l) => mins(Number(l.plannedSec) || 0));
+  if (sharePlanned.length > 1) {
+    const rest = sharePlanned.slice(0, -1).reduce((a, x) => a + x, 0);
+    sharePlanned[sharePlanned.length - 1] = Math.max(0, oneDp(mins(plannedSum) - rest));
+  }
   if (mode === 'split') timed.forEach((r) => shareMin.push(r.minutes ?? 0));
   else {
     let left = totalMinutes;
