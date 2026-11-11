@@ -40,8 +40,11 @@ The column headers must match exactly, in this order:
 | 20 | Entry | `Split by customer` | `Whole` | `Whole`, `Split by customer` or `Split by tube` |
 | 21 | Timing | `Typed` | `Stopwatch` | Whether the times came from the stopwatch or were typed |
 | 22 | Entered at | `10/11/2026 09:45` | `11/11/2026 13:11` | When the operator pressed Submit |
+| 23 | JN minutes | `10.4` | `31.5` | This row's share of the actual time, filled on **every** row. Split entry: the row's own minutes. Whole entry: the program's minutes shared by each row's planned time. Use this for per-JN totals. |
+| 24 | JN planned minutes | `3.8` | `8.2` | This row's own planned time, filled on every row |
 
 Tips:
 - Keep each table on its own sheet and do your reports on other sheets with formulas or pivot tables that point at the tables.
+- **Per job (JN) totals:** use `JN minutes` and `JN planned minutes`, never `Minutes`. The *Cut summary* Power Query ([cut-summary.md](cut-summary.md)) does this for you.
 - **Total cutting minutes** for a machine = `SUM(Laser3030[Minutes])` (or `Laser1040`, `Tube7000`), which counts each program once because whole entries only fill the first row.
 - Avoid having the file open for editing all day on one PC. Excel Online and Power Automate cope with this, but a locked file is the most common reason a row fails to add.

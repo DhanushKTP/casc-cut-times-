@@ -102,6 +102,23 @@ export default async (req) => {
   const totalMinutes = oneDp(timed.reduce((a, r) => a + (r.minutes || 0), 0));
   const isTube = program.type === 'tube';
 
+  // Each line's share of the time, so per-JN totals add up even for a whole-program entry.
+  // Split: the line's own time. Whole: the program's time shared by each line's planned time
+  // (equal shares if nothing is planned); the last line takes the rounding so the shares add up exactly.
+  const plannedSum = lines.reduce((a, l) => a + (Number(l.plannedSec) || 0), 0);
+  const shareMin = [];
+  const sharePlanned = lines.map((l) => mins(Number(l.plannedSec) || 0));
+  if (mode === 'split') timed.forEach((r) => shareMin.push(r.minutes ?? 0));
+  else {
+    let left = totalMinutes;
+    lines.forEach((l, i) => {
+      if (i === lines.length - 1) { shareMin.push(oneDp(left)); return; }
+      const f = plannedSum > 0 ? (Number(l.plannedSec) || 0) / plannedSum : 1 / lines.length;
+      const m = oneDp(totalMinutes * f);
+      shareMin.push(m); left -= m;
+    });
+  }
+
   // One row per line (JN on the flat lasers, tube type on the tube laser), keyed by the master sheet's column names.
   const rows = timed.map((r, i) => ({
     'Submission ID': submissionId,
@@ -126,6 +143,8 @@ export default async (req) => {
     'Entry': mode === 'split' ? (isTube ? 'Split by tube' : 'Split by customer') : 'Whole',
     'Timing': timing === 'stopwatch' ? 'Stopwatch' : 'Typed',
     'Entered at': ukDateTime(enteredAt),
+    'JN minutes': shareMin[i],
+    'JN planned minutes': sharePlanned[i],
   }));
 
   const record = {
