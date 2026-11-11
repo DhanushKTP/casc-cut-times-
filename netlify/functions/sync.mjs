@@ -3,8 +3,10 @@
 //   { kind: "done",    programs: [...] }  -> adds/updates programs completed in SigmaNEST
 //   { kind: "tube",    programs: [...] }  -> adds/updates TruLaser Tube 7000 production packages (.TPP)
 //   { kind: "ping" }                       -> checks the key and connection only
+//   { kind: "reset", confirm: "CLEAR" }    -> starts afresh: empties the program lists, all submitted times
+//                                             and all stopwatches; the sync then sends everything again
 import {
-  env, safeEqual, json, fail, body, writeJSON, updateJSON, nowLocal, summarize, monthKey,
+  env, safeEqual, json, fail, body, writeJSON, updateJSON, nowLocal, summarize, monthKey, store,
   PROGRAMS, EMPTY_SUMMARY,
 } from '../shared/core.mjs';
 
@@ -74,7 +76,17 @@ export default async (req) => {
   if (!safeEqual(req.headers.get('x-sync-key'), key)) return fail(401, 'Wrong sync key.');
 
   const b = await body(req);
-  if (!b || !['waiting', 'done', 'tube', 'ping'].includes(b.kind)) return fail(400, 'kind must be waiting, done, tube or ping.');
+  if (!b || !['waiting', 'done', 'tube', 'ping', 'reset'].includes(b.kind)) return fail(400, 'kind must be waiting, done, tube, ping or reset.');
+  if (b.kind === 'reset') {
+    if (b.confirm !== 'CLEAR') return fail(400, 'Send confirm: "CLEAR" to empty the program lists.');
+    let removed = 0;
+    for (const name of [PROGRAMS, 'submissions', 'timers']) {
+      const st = store(name);
+      const { blobs } = await st.list();
+      for (const x of blobs) { await st.delete(x.key); removed++; }
+    }
+    return json({ ok: true, kind: 'reset', removed, at: nowLocal() });
+  }
   const at = nowLocal();
   // "Still here" from the PC, per source, so the tablet can show when each machine's list was last checked.
   const beat = (sources) => updateJSON(PROGRAMS, 'heartbeat', {}, (h) => { for (const src of sources) h[src] = at; });

@@ -14,8 +14,10 @@
   Usage:  CascCutTimeSync.ps1            normal run (what the scheduled task does)
           CascCutTimeSync.ps1 -Force     send everything now, even if nothing changed
           CascCutTimeSync.ps1 -Test      check SQL and the website only, send nothing
+          CascCutTimeSync.ps1 -Reset     start afresh: empty the website (programs, submitted times,
+                                         stopwatches), then send everything again
 #>
-param([switch]$Test, [switch]$Force)
+param([switch]$Test, [switch]$Force, [switch]$Reset)
 
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -435,6 +437,13 @@ try {
       throw "the site didn't accept the connection or the sync key: $detail"
     }
     return
+  }
+
+  if ($Reset) {
+    $res = Invoke-RestMethod -Uri "$site/api/sync" -Method Post -Body '{"kind":"reset","confirm":"CLEAR"}' -ContentType 'application/json' -Headers @{ 'x-sync-key' = $syncKey } -TimeoutSec 120
+    Write-Log "Website emptied: programs, submitted times and stopwatches ($($res.removed) items removed). Sending everything again..."
+    if (Test-Path $statePath) { Remove-Item $statePath -Force }
+    $Force = $true
   }
 
   $state = Read-State

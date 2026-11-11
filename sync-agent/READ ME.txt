@@ -26,6 +26,8 @@ Put this folder somewhere permanent, e.g. Documents\CASC Cut Times sync, then:
 OTHER FILES
 Check cut times sync.bat        Is it running? Last / next run, any problem, sleep gaps, last log lines.
 Stop cut times sync.bat         Switches the automatic sync off.
+Start afresh.bat                Empties the website (program lists, submitted times, stopwatches) and
+                                sends everything again. Asks first. Does not touch the master Excel.
 sync_log.txt                    One line per run: what was read and sent, or the error.
 
 WHAT IT READS (dbo tables, named columns only)
