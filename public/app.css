@@ -47,7 +47,7 @@ button { cursor: pointer; }
 .back { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 16px 0 10px; border: 0; border-radius: 8px; background: var(--navy-2); color: #fff; font-weight: 600; }
 
 /* PIN */
-.pin { min-height: 100%; background: var(--navy); color: #fff; display: grid; grid-template-columns: 1fr 1fr; }
+.pin { min-height: 100vh; background: var(--navy); color: #fff; display: grid; grid-template-columns: 1fr 1fr; }
 .pin .intro { display: flex; flex-direction: column; justify-content: space-between; padding: 64px 72px; border-right: 1px solid #2a4058; gap: 32px; }
 .pin .intro img { width: 220px; }
 .eyebrow { margin: 0; font: 500 14px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: #ff6b75; }
@@ -70,7 +70,7 @@ button { cursor: pointer; }
 .ops-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 36px; padding: 40px; }
 .ops-main h2 { margin: 0; font: 800 40px var(--display); text-align: center; }
 .ops-main p { margin: 8px 0 0; color: var(--muted); font-size: 18px; text-align: center; }
-.ops { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 240px)); justify-content: center; gap: 24px; width: 100%; max-width: 1100px; }
+.ops { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 210px)); justify-content: center; gap: 20px; width: 100%; max-width: 1200px; }
 .op { height: 230px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
 .op:active { border-color: var(--navy); }
 .op .avatar { width: 96px; height: 96px; font-size: 34px; background: var(--navy); color: #fff; }
@@ -255,3 +255,18 @@ button { cursor: pointer; }
 .wrow .who-line em { font: normal 13px var(--mono); color: var(--ink-2); }
 .wrow .who-line small { font-size: 12px; color: var(--muted); }
 .wrow .wbtns { justify-content: flex-end; gap: 6px; width: auto; }
+
+/* laptops and shorter screens: smaller name tiles so five fit on one row */
+@media (max-height: 860px) {
+  .ops-main { gap: 24px; padding: 24px; }
+  .ops-main h2 { font-size: 34px; }
+  .op { height: 170px; gap: 12px; }
+  .op .avatar { width: 68px; height: 68px; font-size: 24px; }
+  .op b { font-size: 19px; }
+  .pin .intro { padding: 40px 56px; }
+  .pin h2 { font-size: 44px; }
+  .pad button { height: 64px; }
+}
+.op:hover, .row:hover { border-color: var(--navy-3); }
+#app { min-height: 100%; }
+.op { color: var(--ink); }

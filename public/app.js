@@ -139,8 +139,8 @@
     return `<div class="pin">
       <section class="intro">
         <img src="/logo-white.png" alt="CASC Engineering">
-        <div><p class="eyebrow">Laser cut times</p><h2>Record cut times<br>for every nest.</h2>
-        <p>Programs come straight from SigmaNEST. Type the start and end times and they go to the master sheet on SharePoint.</p></div>
+        <div><p class="eyebrow">Laser cut times · 3030 · 1040 · Tube 7000</p><h2>Record cut times<br>for every nest.</h2>
+        <p>Programs come straight from SigmaNEST and the tube laser folder. Time each one with the stopwatch and it goes to the master sheet on SharePoint.</p></div>
         <p class="eyebrow" style="color:#8fa3b8;letter-spacing:0;text-transform:none">CASC Engineering</p>
       </section>
       <section class="pad-wrap">
@@ -161,12 +161,12 @@
     return `<div class="screen">
       <header class="bar"><div class="left"><img src="/logo-white.png" alt="CASC Engineering"></div><div class="right"><span class="sync" style="color:#b8c7d6">Laser cut times</span></div></header>
       <main class="ops-main">
-        <div><h2>Who's cutting?</h2><p>Tap your name. It goes on every time you submit.</p></div>
+        <div><h2>Who's cutting?</h2><p>Choose your name. It goes on every time you submit.</p></div>
         <div class="ops">${state.operators.map((o) => {
           const [first, ...rest] = o.split(' ');
           return `<button class="op" data-act="pick-op" data-op="${esc(o)}"><span class="avatar">${esc(initials(o))}</span><span style="display:flex;flex-direction:column;align-items:center;gap:2px"><b>${esc(first)}</b><span>${esc(rest.join(' '))}</span></span></button>`;
         }).join('') || '<p>No operators are set up. Add them to OPERATORS in Netlify.</p>'}</div>
-        <button class="link-btn" data-act="lock">Lock tablet</button>
+        <button class="link-btn" data-act="lock">Lock screen</button>
       </main>
     </div>`;
   }
